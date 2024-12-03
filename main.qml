@@ -342,10 +342,16 @@ ApplicationWindow {
         pulseOpacity.running = false
         removeSplashTimer.running = false
         webView.webChannel.registerObject( 'transport', transport )
-        // Prepare the JavaScript code to inject
+        // Prepare the CSS code to inject
         var cssContent = cssLoader.cssContent.replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/\n/g, "\\n");
+
+        // Prepare the JavaScript code to inject
+        var jsContent = jsLoader.jsContent.replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/\n/g, "\\n");
+
         var injectedJS = "try { initShellComm(); " +
-            "var style = document.createElement('style'); style.innerHTML = '" + cssContent + "'; document.head.appendChild(style); } " +
+            "var style = document.createElement('style'); style.innerHTML = '" + cssContent + "'; document.head.appendChild(style); " +
+            "var script = document.createElement('script'); script.innerHTML = '" + jsContent + "'; document.head.appendChild(script); " +
+            "} " +
             "catch(e) { setTimeout(function() { throw e }); e.message || JSON.stringify(e) }"
 
         webView.runJavaScript(injectedJS, function(err) {
@@ -454,7 +460,7 @@ ApplicationWindow {
 
         // Prevent navigation
         onNavigationRequested: function(req) {
-            // WARNING: @TODO: perhaps we need a better way to parse URLs here
+            // WARNING: we should load the app through https to avoid MITM attacks on the clipboard
             var allowedHost = webView.mainUrl.split('/')[2]
             var targetHost = req.url.toString().split('/')[2]
             if (allowedHost != targetHost && (req.isMainFrame || targetHost !== 'www.youtube.com')) {
