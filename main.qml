@@ -26,15 +26,13 @@ ApplicationWindow {
     height: root.initialHeight
 
     property bool quitting: false
-    color: "#0c0b11";
+    color: "#0c0b11"
     title: appTitle
 
     property var previousVisibility: Window.Windowed
     property bool wasFullScreen: false
 
-    // track which theme is currently active
     property string currentTheme: "theme.css"
-    // track enabled mods
     property var enabledMods: []
 
     function setFullScreen(fullscreen) {
@@ -137,6 +135,7 @@ ApplicationWindow {
         id: screenSaver
         property bool disabled: false
     }
+
     Timer {
         id: timerScreensaver
         interval: 300000
@@ -164,7 +163,7 @@ ApplicationWindow {
             }
 
             if (streamingServer.fastReload) {
-                console.log("Streaming server: performing fast re-load")
+                console.log("streaming server: performing fast re-load")
                 streamingServer.fastReload = false
                 root.launchServer()
             } else {
@@ -185,7 +184,7 @@ ApplicationWindow {
 
     function showStreamingServerErr(code) {
         errorDialog.text = streamingServer.errMessage
-        errorDialog.detailedText = 'Stremio streaming server has thrown an error \nQProcess::ProcessError code: '
+        errorDialog.detailedText = 'stremio streaming server has thrown an error \nQProcess::ProcessError code: '
             + code + '\n\n'
             + streamingServer.getErrBuff();
         errorDialog.visible = true
@@ -252,14 +251,14 @@ ApplicationWindow {
         var injectedJS = "try { initShellComm(); " +
             "var style = document.createElement('style'); style.innerHTML = '" + cssContent + "'; document.head.appendChild(style); " +
             "var script = document.createElement('script'); script.innerHTML = '" + jsContent + "'; document.head.appendChild(script); " +
-            "} catch(e) { setTimeout(function() { throw e }); e.message || JSON.stringify(e) }"
+            "} catch(e) { setTimeout(function() { throw e }); }"
 
         webView.runJavaScript(injectedJS, function(err) {
             if (err) {
                 errorDialog.text = "user interface could not be loaded.\n\nplease try again later or contact the stremio support team for assistance."
                 errorDialog.detailedText = err
                 errorDialog.visible = true
-                console.error(err)
+                console.log(err)
             }
         });
     }
@@ -327,8 +326,7 @@ ApplicationWindow {
             transport.queueEvent("render-process-terminated", { exitCode: exitCode, terminationStatus: terminationStatus, url: webView.url })
         }
 
-        onLinkHovered: webView.hoveredUrl = hoveredUrl
-        onNewViewRequested: function(req) { if (req.userInitiated) Qt.openUrlExternally(webView.hoveredUrl) }
+        // remove hoveredUrl handling
 
         onFullScreenRequested: function(req) {
             setFullScreen(req.toggleOn);
@@ -344,54 +342,7 @@ ApplicationWindow {
             }
         }
 
-        Menu {
-            id: ctxMenu
-            MenuItem {
-                text: "undo"
-                shortcut: StandardKey.Undo
-                onTriggered: webView.triggerWebAction(WebEngineView.Undo)
-            }
-            MenuItem {
-                text: "redo"
-                shortcut: StandardKey.Redo
-                onTriggered: webView.triggerWebAction(WebEngineView.Redo)
-            }
-            MenuSeparator { }
-            MenuItem {
-                text: "cut"
-                shortcut: StandardKey.Cut
-                onTriggered: webView.triggerWebAction(WebEngineView.Cut)
-            }
-            MenuItem {
-                text: "copy"
-                shortcut: StandardKey.Copy
-                onTriggered: webView.triggerWebAction(WebEngineView.Copy)
-            }
-            MenuItem {
-                text: "paste"
-                shortcut: StandardKey.Paste
-                onTriggered: webView.triggerWebAction(WebEngineView.Paste)
-            }
-            MenuSeparator { }
-            MenuItem {
-                text: "select all"
-                shortcut: StandardKey.SelectAll
-                onTriggered: webView.triggerWebAction(WebEngineView.SelectAll)
-            }
-        }
-
-        onContextMenuRequested: function(request) {
-            request.accepted = true;
-            if (request.isContentEditable) {
-                ctxMenu.popup();
-            }
-        }
-
-        Action {
-            shortcut: StandardKey.Paste
-            onTriggered: webView.triggerWebAction(WebEngineView.Paste)
-        }
-
+        // no context menu modifications needed here
         DropArea {
             anchors.fill: parent
             onDropped: function(dropargs){
@@ -537,62 +488,80 @@ ApplicationWindow {
         Autoupdater.initAutoUpdater(autoUpdater, root.autoUpdaterErr, autoUpdaterShortTimer, autoUpdaterLongTimer, autoUpdaterRestartTimer, webView.profile.httpUserAgent);
     }
 
-    // alt key menu for changing theme and mods
     Shortcut {
         sequence: "Alt"
         onActivated: {
-            altMenu.open()
+            altPopup.visible = true
         }
     }
 
-    Menu {
-        id: altMenu
-        title: "mods menu"
-        x: 10
-        y: 10
-        modal: true
+    Popup {
+        id: altPopup
+        width: 400
+        height: 600
+        focus: true
+        closePolicy: Popup.CloseOnEscape
+        contentItem: Rectangle {
+            color: "#333"
+            anchors.fill: parent
 
-        Menu {
-            title: "themes"
-            Repeater {
-                model: modManager.themes
-                MenuItem {
-                    text: modelData
-                    checkable: true
-                    checked: modelData === currentTheme
-                    onTriggered: {
-                        currentTheme = modelData
-                        reloadInjectedContent()
-                    }
+            Column {
+                anchors.fill: parent
+                anchors.margins: 10
+                spacing: 10
+
+                Text {
+                    text: "themes"
+                    color: "#fff"
                 }
-            }
-        }
-
-        Menu {
-            title: "mods"
-            Repeater {
-                model: modManager.mods
-                MenuItem {
-                    text: modelData
-                    checkable: true
-                    checked: enabledMods.indexOf(modelData) !== -1
-                    onTriggered: {
-                        var idx = enabledMods.indexOf(modelData)
-                        if (idx === -1) {
-                            enabledMods.push(modelData)
-                        } else {
-                            enabledMods.splice(idx,1)
+                Column {
+                    Repeater {
+                        model: modManager.themes
+                        RadioButton {
+                            text: modelData
+                            checked: modelData === currentTheme
+                            onClicked: {
+                                currentTheme = modelData
+                                reloadInjectedContent()
+                            }
                         }
-                        reloadInjectedContent()
                     }
                 }
-            }
-        }
 
-        MenuItem {
-            text: "refresh lists"
-            onTriggered: {
-                modManager.refresh()
+                Text {
+                    text: "mods"
+                    color: "#fff"
+                }
+                Column {
+                    Repeater {
+                        model: modManager.mods
+                        CheckBox {
+                            text: modelData
+                            checked: enabledMods.indexOf(modelData) !== -1
+                            onClicked: {
+                                var idx = enabledMods.indexOf(modelData)
+                                if (idx === -1) {
+                                    enabledMods.push(modelData)
+                                } else {
+                                    enabledMods.splice(idx,1)
+                                }
+                                reloadInjectedContent()
+                            }
+                        }
+                    }
+                }
+
+                Button {
+                    text: "refresh lists"
+                    onClicked: {
+                        modManager.refresh()
+                    }
+                }
+
+                Button {
+                    text: "close"
+                    onClicked: altPopup.visible = false
+                }
             }
         }
     }
