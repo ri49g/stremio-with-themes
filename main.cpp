@@ -28,11 +28,61 @@ typedef QApplication Application;
 
 #include <QObject>
 #include <QFile>
+#include <QDir>
 #include <QDebug>
 
 #else
 #include <QGuiApplication>
 #endif
+
+class ModManager : public QObject {
+    Q_OBJECT
+    Q_PROPERTY(QStringList themes READ themes NOTIFY themesChanged)
+    Q_PROPERTY(QStringList mods READ mods NOTIFY modsChanged)
+
+public:
+    ModManager(QObject *parent = nullptr) : QObject(parent) {
+        updateLists();
+    }
+
+    QStringList themes() const { return m_themes; }
+    QStringList mods() const { return m_mods; }
+
+    Q_INVOKABLE void refresh() {
+        updateLists();
+        emit themesChanged();
+        emit modsChanged();
+    }
+
+signals:
+    void themesChanged();
+    void modsChanged();
+
+private:
+    void updateLists() {
+        m_themes.clear();
+        m_mods.clear();
+
+        QDir themeDir("/home/ras/ephemeral/mods/themes");
+        if (themeDir.exists()) {
+            QStringList themeFiles = themeDir.entryList(QStringList() << "*.css", QDir::Files);
+            foreach (const QString &f, themeFiles) {
+                m_themes << f;
+            }
+        }
+
+        QDir modsDir("/home/ras/ephemeral/mods/mods");
+        if (modsDir.exists()) {
+            QStringList modFiles = modsDir.entryList(QStringList() << "*.js", QDir::Files);
+            foreach (const QString &f, modFiles) {
+                m_mods << f;
+            }
+        }
+    }
+
+    QStringList m_themes;
+    QStringList m_mods;
+};
 
 class CssLoader : public QObject {
     Q_OBJECT
@@ -40,26 +90,37 @@ class CssLoader : public QObject {
 
 public:
     CssLoader(QObject *parent = nullptr) : QObject(parent) {
-        // Read the CSS file
-        QFile file("/home/ras/ephemeral/mods/theme.css");
-        if (file.open(QIODevice::ReadOnly | QIODevice::Text)) {
-            m_cssContent = file.readAll();
-            file.close();
-        } else {
-            m_cssContent = "";
-            qWarning() << "Could not open CSS file";
-        }
+        m_currentTheme = "theme.css"; // default
+        loadTheme();
     }
 
     QString cssContent() const {
         return m_cssContent;
     }
 
+    Q_INVOKABLE void setTheme(const QString &themeName) {
+        m_currentTheme = themeName;
+        loadTheme();
+        emit cssContentChanged();
+    }
+
 signals:
     void cssContentChanged();
 
 private:
+    void loadTheme() {
+        QFile file("/home/ras/ephemeral/mods/themes/" + m_currentTheme);
+        if (file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+            m_cssContent = file.readAll();
+            file.close();
+        } else {
+            m_cssContent = "";
+            qWarning() << "Could not open CSS file for theme:" << m_currentTheme;
+        }
+    }
+
     QString m_cssContent;
+    QString m_currentTheme;
 };
 
 class JsLoader : public QObject {
@@ -68,19 +129,28 @@ class JsLoader : public QObject {
 
 public:
     JsLoader(QObject *parent = nullptr) : QObject(parent) {
-        // Read the JS file
-        QFile file("/home/ras/ephemeral/mods/mod.js");
-        if (file.open(QIODevice::ReadOnly | QIODevice::Text)) {
-            m_jsContent = file.readAll();
-            file.close();
-        } else {
-            m_jsContent = "";
-            qWarning() << "Could not open JS file";
-        }
+        // by default, no mods
     }
 
     QString jsContent() const {
         return m_jsContent;
+    }
+
+    Q_INVOKABLE void setMods(const QStringList &enabledMods) {
+        // Combine all selected mods into one JS string
+        QString combined;
+        foreach (const QString &m, enabledMods) {
+            QFile file("/home/ras/ephemeral/mods/mods/" + m);
+            if (file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+                combined += file.readAll();
+                combined += "\n";
+                file.close();
+            } else {
+                qWarning() << "Could not open mod file:" << m;
+            }
+        }
+        m_jsContent = combined;
+        emit jsContentChanged();
     }
 
 signals:
@@ -98,7 +168,6 @@ void InitializeParameters(QQmlApplicationEngine *engine, MainApp& app) {
     ctx->setContextProperty("appTitle", QString(APP_TITLE));
     ctx->setContextProperty("autoUpdater", app.autoupdater);
 
-    // Set access to an object of class properties in QML context
     ctx->setContextProperty("systemTray", systemTray);
 
     #ifdef QT_DEBUG
@@ -107,23 +176,18 @@ void InitializeParameters(QQmlApplicationEngine *engine, MainApp& app) {
         ctx->setContextProperty("debug", false);
     #endif
 
-    // Add the CssLoader instance
     CssLoader *cssLoader = new CssLoader();
-    ctx->setContextProperty("cssLoader", cssLoader);
-
-    // Add the JsLoader instance
     JsLoader *jsLoader = new JsLoader();
+    ModManager *modManager = new ModManager();
+    ctx->setContextProperty("cssLoader", cssLoader);
     ctx->setContextProperty("jsLoader", jsLoader);
+    ctx->setContextProperty("modManager", modManager);
 }
 
 int main(int argc, char **argv)
 {
     qputenv("QTWEBENGINE_CHROMIUM_FLAGS", "--autoplay-policy=no-user-gesture-required");
     #ifdef _WIN32
-    // Default to ANGLE (DirectX), because that seems to eliminate so many issues on Windows
-    // Also, according to the docs here: https://wiki.qt.io/Qt_5_on_Windows_ANGLE_and_OpenGL, ANGLE is also preferrable
-    // We do not need advanced OpenGL features but we need more universal support
-
     Application::setAttribute(Qt::AA_UseOpenGLES);
     auto winVer = QSysInfo::windowsVersion();
     if(winVer <= QSysInfo::WV_WINDOWS8 && winVer != QSysInfo::WV_None) {
@@ -134,7 +198,6 @@ int main(int argc, char **argv)
     }
     #endif
 
-    // This is really broken on Linux
     #ifndef Q_OS_LINUX
     Application::setAttribute(Qt::AA_EnableHighDpiScaling);
     #endif
@@ -151,18 +214,12 @@ int main(int argc, char **argv)
             app.sendMessage( app.arguments().at(1).toUtf8() );
         else
             app.sendMessage( "SHOW" );
-        //app.sendMessage( app.arguments().join(' ').toUtf8() );
         return 0;
     }
     #endif
 
     app.setWindowIcon(QIcon(":/images/stremio_window.png"));
-
-
-    // Qt sets the locale in the QGuiApplication constructor, but libmpv
-    // requires the LC_NUMERIC category to be set to "C", so change it back.
     std::setlocale(LC_NUMERIC, "C");
-
 
     static QQmlApplicationEngine* engine = new QQmlApplicationEngine();
 
@@ -181,10 +238,11 @@ int main(int argc, char **argv)
     #endif
     QObject::connect( &app, SIGNAL(receivedMessage(QVariant, QVariant)), engine->rootObjects().value(0),
                       SLOT(onAppMessageReceived(QVariant, QVariant)) );
+
     int ret = app.exec();
     delete engine;
     engine = nullptr;
     return ret;
 }
 
-#include "main.moc" // Add this line at the end of the file
+#include "main.moc"
