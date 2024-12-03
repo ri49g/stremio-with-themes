@@ -41,7 +41,7 @@ class CssLoader : public QObject {
 public:
     CssLoader(QObject *parent = nullptr) : QObject(parent) {
         // Read the CSS file
-        QFile file("/home/ras/ephemeral/css/theme.css");
+        QFile file("/home/ras/ephemeral/mods/theme.css");
         if (file.open(QIODevice::ReadOnly | QIODevice::Text)) {
             m_cssContent = file.readAll();
             file.close();
@@ -60,6 +60,34 @@ signals:
 
 private:
     QString m_cssContent;
+};
+
+class JsLoader : public QObject {
+    Q_OBJECT
+    Q_PROPERTY(QString jsContent READ jsContent NOTIFY jsContentChanged)
+
+public:
+    JsLoader(QObject *parent = nullptr) : QObject(parent) {
+        // Read the JS file
+        QFile file("/home/ras/ephemeral/mods/mod.js");
+        if (file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+            m_jsContent = file.readAll();
+            file.close();
+        } else {
+            m_jsContent = "";
+            qWarning() << "Could not open JS file";
+        }
+    }
+
+    QString jsContent() const {
+        return m_jsContent;
+    }
+
+signals:
+    void jsContentChanged();
+
+private:
+    QString m_jsContent;
 };
 
 void InitializeParameters(QQmlApplicationEngine *engine, MainApp& app) {
@@ -82,6 +110,10 @@ void InitializeParameters(QQmlApplicationEngine *engine, MainApp& app) {
     // Add the CssLoader instance
     CssLoader *cssLoader = new CssLoader();
     ctx->setContextProperty("cssLoader", cssLoader);
+
+    // Add the JsLoader instance
+    JsLoader *jsLoader = new JsLoader();
+    ctx->setContextProperty("jsLoader", jsLoader);
 }
 
 int main(int argc, char **argv)
