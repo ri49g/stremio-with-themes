@@ -322,7 +322,7 @@ ApplicationWindow {
         if (args.indexOf("--staging") > -1)
             return "https://staging.strem.io/#"+params
 
-        return "https://app.strem.io/shell-v"+shortVer+"/#"+params;
+        return "https://web.strem.io/shell-v"+shortVer+"/#"+params;
     }
 
     Timer {
