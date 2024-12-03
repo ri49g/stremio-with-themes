@@ -114,6 +114,17 @@ ApplicationWindow {
               }
               fileDialog.open()
             }
+            if (ev === "load-theme") {
+                cssLoader.loadTheme(args);
+                injectTheme();
+            }
+            if (ev === "load-mod") {
+                jsLoader.loadMod(args);
+                injectMod();
+            }
+            if (ev === "unload-mod") {
+                removeMod();
+            }
         }
 
         // events that we want to wait for the app to initialize
@@ -128,6 +139,29 @@ ApplicationWindow {
         }
     }
 
+    function injectTheme() {
+        var cssContent = cssLoader.currentThemeContent.replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/\n/g, "\\n");
+        var jsCode = "var style = document.getElementById('dynamic-theme');" +
+                     "if (style) { style.innerHTML = '" + cssContent + "'; } else { " +
+                     "style = document.createElement('style'); style.id = 'dynamic-theme'; " +
+                     "style.innerHTML = '" + cssContent + "'; document.head.appendChild(style); }";
+        webView.runJavaScript(jsCode);
+    }
+
+    function injectMod() {
+        var jsContent = jsLoader.currentModContent.replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/\n/g, "\\n");
+        var jsCode = "var script = document.getElementById('dynamic-mod');" +
+                     "if (script) { script.innerHTML = '" + jsContent + "'; } else { " +
+                     "script = document.createElement('script'); script.id = 'dynamic-mod'; " +
+                     "script.innerHTML = '" + jsContent + "'; document.head.appendChild(script); }";
+        webView.runJavaScript(jsCode);
+    }
+
+    function removeMod() {
+        var jsCode = "var script = document.getElementById('dynamic-mod');" +
+                     "if (script) { script.parentNode.removeChild(script); }";
+        webView.runJavaScript(jsCode);
+    }
 
     // Utilities
     function onWindowMode(mode) {
@@ -342,15 +376,25 @@ ApplicationWindow {
         pulseOpacity.running = false
         removeSplashTimer.running = false
         webView.webChannel.registerObject( 'transport', transport )
-        // Prepare the CSS code to inject
-        var cssContent = cssLoader.cssContent.replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/\n/g, "\\n");
 
-        // Prepare the JavaScript code to inject
-        var jsContent = jsLoader.jsContent.replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/\n/g, "\\n");
+        var cssContent = cssLoader.currentThemeContent.replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/\n/g, "\\n");
+        var jsContent = jsLoader.currentModContent.replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/\n/g, "\\n");
+        var themeNames = cssLoader.themeNames;
+        var modNames = jsLoader.modNames;
 
-        var injectedJS = "try { initShellComm(); " +
-            "var style = document.createElement('style'); style.innerHTML = '" + cssContent + "'; document.head.appendChild(style); " +
-            "var script = document.createElement('script'); script.innerHTML = '" + jsContent + "'; document.head.appendChild(script); " +
+        var injectedJS = "try { " +
+            "function initShellComm() { " +
+            "    new QWebChannel(qt.webChannelTransport, function(channel) { " +
+            "        window.transport = channel.objects.transport; " +
+            "        window.themeNames = " + JSON.stringify(themeNames) + "; " +
+            "        window.modNames = " + JSON.stringify(modNames) + "; " +
+            "        initCustomMenu(); " +
+            "    }); " +
+            "} " +
+            "function initCustomMenu() { /* Your JS code to add the menu */ } " +
+            "initShellComm(); " +
+            "var style = document.createElement('style'); style.id = 'dynamic-theme'; style.innerHTML = '" + cssContent + "'; document.head.appendChild(style); " +
+            "var script = document.createElement('script'); script.id = 'dynamic-mod'; script.innerHTML = '" + jsContent + "'; document.head.appendChild(script); " +
             "} " +
             "catch(e) { setTimeout(function() { throw e }); e.message || JSON.stringify(e) }"
 
@@ -441,22 +485,10 @@ ApplicationWindow {
 
         }
 
-        // WARNING: does not work..for some reason: "Scripts may close only the windows that were opened by it."
-        // onWindowCloseRequested: function() {
-        //     root.visible = false;
-        //     Qt.quit()
-        // }
-
         // In the app, we use open-external IPC signal, but make sure this works anyway
         property string hoveredUrl: ""
         onLinkHovered: webView.hoveredUrl = hoveredUrl
         onNewViewRequested: function(req) { if (req.userInitiated) Qt.openUrlExternally(webView.hoveredUrl) }
-
-        // FIXME: When is this called?
-        onFullScreenRequested: function(req) {
-            setFullScreen(req.toggleOn);
-            req.accept();
-        }
 
         // Prevent navigation
         onNavigationRequested: function(req) {
