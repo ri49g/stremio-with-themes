@@ -618,7 +618,7 @@ ApplicationWindow {
         // For demonstration, let's pick Alt+M:
         // sequence: "Alt+M"
         // The user wanted the alt key alone. We try just "Alt".
-        sequence: "Alt"
+        sequence: "Alt+M"
         onActivated: {
             menuWindow.visible = !menuWindow.visible
         }
