@@ -320,9 +320,9 @@ ApplicationWindow {
             return "http://127.0.0.1:11470/#"+params
 
         if (args.indexOf("--staging") > -1)
-            return "https://web.strem.io/#"+params
+            return "https://staging.strem.io/#"+params
 
-        return "https://web.strem.io/shell-v"+shortVer+"/#"+params;
+        return "https://app.strem.io/shell-v"+shortVer+"/#"+params;
     }
 
     Timer {
