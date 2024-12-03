@@ -44,15 +44,7 @@ class CssLoader : public QObject {
 
 public:
     CssLoader(QObject *parent = nullptr) : QObject(parent) {
-        QDir dir("/home/ras/ephemeral/mods/themes");
-        QStringList nameFilters;
-        nameFilters << "*.css";
-        QFileInfoList fileList = dir.entryInfoList(nameFilters, QDir::Files);
-        foreach(QFileInfo fileInfo, fileList) {
-            m_themeNames << fileInfo.baseName();
-            m_themeFiles[fileInfo.baseName()] = fileInfo.absoluteFilePath();
-        }
-        m_currentThemeContent = "";
+        loadThemes();
     }
 
     QStringList themeNames() const {
@@ -64,6 +56,20 @@ public:
     }
 
 public slots:
+    void loadThemes() {
+        QDir dir("/home/ras/ephemeral/mods/themes");
+        QStringList nameFilters;
+        nameFilters << "*.css";
+        QFileInfoList fileList = dir.entryInfoList(nameFilters, QDir::Files);
+        m_themeNames.clear();
+        m_themeFiles.clear();
+        foreach(QFileInfo fileInfo, fileList) {
+            m_themeNames << fileInfo.baseName();
+            m_themeFiles[fileInfo.baseName()] = fileInfo.absoluteFilePath();
+        }
+        emit themeNamesChanged();
+    }
+
     void loadTheme(QString themeName) {
         if (m_themeFiles.contains(themeName)) {
             QFile file(m_themeFiles[themeName]);
@@ -74,6 +80,9 @@ public slots:
             } else {
                 qWarning() << "Could not open theme file:" << m_themeFiles[themeName];
             }
+        } else if (themeName.isEmpty()) {
+            m_currentThemeContent = "";
+            emit currentThemeContentChanged();
         } else {
             qWarning() << "Theme not found:" << themeName;
         }
@@ -92,23 +101,20 @@ private:
 class JsLoader : public QObject {
     Q_OBJECT
     Q_PROPERTY(QStringList modNames READ modNames NOTIFY modNamesChanged)
+    Q_PROPERTY(QStringList enabledMods READ enabledMods NOTIFY enabledModsChanged)
     Q_PROPERTY(QString currentModContent READ currentModContent NOTIFY currentModContentChanged)
 
 public:
     JsLoader(QObject *parent = nullptr) : QObject(parent) {
-        QDir dir("/home/ras/ephemeral/mods/mods");
-        QStringList nameFilters;
-        nameFilters << "*.js";
-        QFileInfoList fileList = dir.entryInfoList(nameFilters, QDir::Files);
-        foreach(QFileInfo fileInfo, fileList) {
-            m_modNames << fileInfo.baseName();
-            m_modFiles[fileInfo.baseName()] = fileInfo.absoluteFilePath();
-        }
-        m_currentModContent = "";
+        loadMods();
     }
 
     QStringList modNames() const {
         return m_modNames;
+    }
+
+    QStringList enabledMods() const {
+        return m_enabledMods;
     }
 
     QString currentModContent() const {
@@ -116,13 +122,30 @@ public:
     }
 
 public slots:
+    void loadMods() {
+        QDir dir("/home/ras/ephemeral/mods/mods");
+        QStringList nameFilters;
+        nameFilters << "*.js";
+        QFileInfoList fileList = dir.entryInfoList(nameFilters, QDir::Files);
+        m_modNames.clear();
+        m_modFiles.clear();
+        foreach(QFileInfo fileInfo, fileList) {
+            m_modNames << fileInfo.baseName();
+            m_modFiles[fileInfo.baseName()] = fileInfo.absoluteFilePath();
+        }
+        emit modNamesChanged();
+    }
+
     void loadMod(QString modName) {
         if (m_modFiles.contains(modName)) {
             QFile file(m_modFiles[modName]);
             if (file.open(QIODevice::ReadOnly | QIODevice::Text)) {
-                m_currentModContent = file.readAll();
+                QString modContent = file.readAll();
                 file.close();
+                m_currentModContent += "\n" + modContent;
+                m_enabledMods.append(modName);
                 emit currentModContentChanged();
+                emit enabledModsChanged();
             } else {
                 qWarning() << "Could not open mod file:" << m_modFiles[modName];
             }
@@ -131,12 +154,32 @@ public slots:
         }
     }
 
+    void unloadMod(QString modName) {
+        if (m_enabledMods.contains(modName)) {
+            m_enabledMods.removeAll(modName);
+            m_currentModContent.clear();
+            foreach (const QString &enabledMod, m_enabledMods) {
+                QFile file(m_modFiles[enabledMod]);
+                if (file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+                    m_currentModContent += "\n" + file.readAll();
+                    file.close();
+                }
+            }
+            emit currentModContentChanged();
+            emit enabledModsChanged();
+        } else {
+            qWarning() << "Mod not enabled:" << modName;
+        }
+    }
+
 signals:
     void modNamesChanged();
+    void enabledModsChanged();
     void currentModContentChanged();
 
 private:
     QStringList m_modNames;
+    QStringList m_enabledMods;
     QMap<QString, QString> m_modFiles; // Map modName to file path
     QString m_currentModContent;
 };
@@ -172,7 +215,7 @@ int main(int argc, char **argv)
     qputenv("QTWEBENGINE_CHROMIUM_FLAGS", "--autoplay-policy=no-user-gesture-required");
     #ifdef _WIN32
     // Default to ANGLE (DirectX), because that seems to eliminate so many issues on Windows
-    // Also, according to the docs here: https://wiki.qt.io/Qt_5_on_Windows_ANGLE_and_OpenGL, ANGLE is also preferrable
+    // Also, according to the docs here: https://wiki.qt.io/Qt_5_on_Windows_ANGLE_and_OpenGL, ANGLE is also preferable
     // We do not need advanced OpenGL features but we need more universal support
 
     Application::setAttribute(Qt::AA_UseOpenGLES);
@@ -202,18 +245,15 @@ int main(int argc, char **argv)
             app.sendMessage( app.arguments().at(1).toUtf8() );
         else
             app.sendMessage( "SHOW" );
-        //app.sendMessage( app.arguments().join(' ').toUtf8() );
         return 0;
     }
     #endif
 
     app.setWindowIcon(QIcon(":/images/stremio_window.png"));
 
-
     // Qt sets the locale in the QGuiApplication constructor, but libmpv
     // requires the LC_NUMERIC category to be set to "C", so change it back.
     std::setlocale(LC_NUMERIC, "C");
-
 
     static QQmlApplicationEngine* engine = new QQmlApplicationEngine();
 
@@ -238,4 +278,4 @@ int main(int argc, char **argv)
     return ret;
 }
 
-#include "main.moc" // Add this line at the end of the file
+#include "main.moc"
