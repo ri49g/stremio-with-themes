@@ -44,13 +44,13 @@ ApplicationWindow {
     }
 
     function showWindow() {
-            if (root.wasFullScreen) {
-                root.visibility = Window.FullScreen;
-            } else {
-                root.visibility = root.previousVisibility;
-            }
-            root.raise();
-            root.requestActivate();
+        if (root.wasFullScreen) {
+            root.visibility = Window.FullScreen;
+        } else {
+            root.visibility = root.previousVisibility;
+        }
+        root.raise();
+        root.requestActivate();
     }
 
     function updatePreviousVisibility() {
@@ -98,21 +98,21 @@ ApplicationWindow {
             if (ev === "screensaver-toggle") shouldDisableScreensaver(args.disabled)
             if (ev === "file-close") fileDialog.close()
             if (ev === "file-open") {
-              if (typeof args !== "undefined") {
-                var fileDialogDefaults = {
-                  title: "Please choose",
-                  selectExisting: true,
-                  selectFolder: false,
-                  selectMultiple: false,
-                  nameFilters: [],
-                  selectedNameFilter: "",
-                  data: null
+                if (typeof args !== "undefined") {
+                    var fileDialogDefaults = {
+                        title: "Please choose",
+                        selectExisting: true,
+                        selectFolder: false,
+                        selectMultiple: false,
+                        nameFilters: [],
+                        selectedNameFilter: "",
+                        data: null
+                    }
+                    Object.keys(fileDialogDefaults).forEach(function(key) {
+                        fileDialog[key] = args.hasOwnProperty(key) ? args[key] : fileDialogDefaults[key]
+                    })
                 }
-                Object.keys(fileDialogDefaults).forEach(function(key) {
-                  fileDialog[key] = args.hasOwnProperty(key) ? args[key] : fileDialogDefaults[key]
-                })
-              }
-              fileDialog.open()
+                fileDialog.open()
             }
             if (ev === "load-theme") {
                 cssLoader.loadTheme(args);
@@ -123,7 +123,8 @@ ApplicationWindow {
                 injectMod();
             }
             if (ev === "unload-mod") {
-                removeMod();
+                jsLoader.unloadMod(args);
+                injectMod(); // Re-inject the current mods
             }
         }
 
@@ -137,30 +138,6 @@ ApplicationWindow {
             if (transport.queued) transport.queued.forEach(function(args) { transport.event.apply(transport, args) })
             transport.queued = null;
         }
-    }
-
-    function injectTheme() {
-        var cssContent = cssLoader.currentThemeContent.replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/\n/g, "\\n");
-        var jsCode = "var style = document.getElementById('dynamic-theme');" +
-                     "if (style) { style.innerHTML = '" + cssContent + "'; } else { " +
-                     "style = document.createElement('style'); style.id = 'dynamic-theme'; " +
-                     "style.innerHTML = '" + cssContent + "'; document.head.appendChild(style); }";
-        webView.runJavaScript(jsCode);
-    }
-
-    function injectMod() {
-        var jsContent = jsLoader.currentModContent.replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/\n/g, "\\n");
-        var jsCode = "var script = document.getElementById('dynamic-mod');" +
-                     "if (script) { script.innerHTML = '" + jsContent + "'; } else { " +
-                     "script = document.createElement('script'); script.id = 'dynamic-mod'; " +
-                     "script.innerHTML = '" + jsContent + "'; document.head.appendChild(script); }";
-        webView.runJavaScript(jsCode);
-    }
-
-    function removeMod() {
-        var jsCode = "var script = document.getElementById('dynamic-mod');" +
-                     "if (script) { script.parentNode.removeChild(script); }";
-        webView.runJavaScript(jsCode);
     }
 
     // Utilities
@@ -188,7 +165,7 @@ ApplicationWindow {
         message = message.toString(); // cause it may be QUrl
         showWindow();
         if (message !== "SHOW") {
-                onAppOpenMedia(message);
+            onAppOpenMedia(message);
         }
     }
 
@@ -365,48 +342,190 @@ ApplicationWindow {
         running: false
         onTriggered: function () {
             webView.tries++
-            // we want to revert to the mainUrl in case the URL we were at was the one that caused the crash
-            //webView.reload()
             webView.url = webView.mainUrl;
         }
     }
 
+    function injectTheme() {
+        var cssContent = cssLoader.currentThemeContent.replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/\n/g, "\\n");
+        var jsCode = `
+            var style = document.getElementById('dynamic-theme');
+            if (style) {
+                style.innerHTML = '${cssContent}';
+            } else {
+                style = document.createElement('style');
+                style.id = 'dynamic-theme';
+                style.innerHTML = '${cssContent}';
+                document.head.appendChild(style);
+            }
+        `;
+        webView.runJavaScript(jsCode);
+    }
+
+    function injectMod() {
+        var jsContent = jsLoader.currentModContent.replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/\n/g, "\\n");
+        var jsCode = `
+            var script = document.getElementById('dynamic-mod');
+            if (script) {
+                script.innerHTML = '${jsContent}';
+            } else {
+                script = document.createElement('script');
+                script.id = 'dynamic-mod';
+                script.innerHTML = '${jsContent}';
+                document.head.appendChild(script);
+            }
+        `;
+        webView.runJavaScript(jsCode);
+    }
+
+    function injectCustomMenuJS() {
+        var jsCode = `
+            (function() {
+                function addCustomSettings() {
+                    // Check if settings page is available
+                    var settingsNav = document.querySelector("#settingsPage > div.sections > nav");
+                    var settingsPanel = document.querySelector("#settingsPanel");
+                    if (!settingsNav || !settingsPanel) {
+                        // Try again after a delay
+                        setTimeout(addCustomSettings, 500);
+                        return;
+                    }
+
+                    // Add new section to the navigation
+                    var sectionId = "custom";
+                    var sectionTitle = "Custom Settings";
+                    var navItem = document.createElement("a");
+                    navItem.href = "#settings-" + sectionId;
+                    navItem.tabIndex = -1;
+                    navItem.innerHTML = '<div class="label ng-scope ng-binding">' + sectionTitle + '</div>';
+                    settingsNav.appendChild(navItem);
+
+                    // Add new section to the settings panel
+                    var section = document.createElement("section");
+                    section.id = sectionId;
+                    section.innerHTML = '<h2 class="ng-scope ng-binding">' + sectionTitle + '</h2>';
+                    settingsPanel.appendChild(section);
+
+                    // Add content to the section
+                    // Themes
+                    var themesDiv = document.createElement("div");
+                    themesDiv.className = "category";
+                    themesDiv.innerHTML = '<div class="title">Themes</div>';
+                    section.appendChild(themesDiv);
+
+                    var themeList = document.createElement("div");
+                    themeList.className = "option option-select";
+                    var themeSelect = document.createElement("select");
+                    themeSelect.id = "themeSelect";
+                    themeSelect.innerHTML = '<option value="">Default</option>';
+                    window.themeNames.forEach(function(themeName) {
+                        var option = document.createElement("option");
+                        option.value = themeName;
+                        option.textContent = themeName;
+                        themeSelect.appendChild(option);
+                    });
+                    themeSelect.addEventListener("change", function() {
+                        transport.onEvent('load-theme', this.value);
+                    });
+                    themeList.appendChild(themeSelect);
+                    themesDiv.appendChild(themeList);
+
+                    // Mods
+                    var modsDiv = document.createElement("div");
+                    modsDiv.className = "category";
+                    modsDiv.innerHTML = '<div class="title">Mods</div>';
+                    section.appendChild(modsDiv);
+
+                    window.modNames.forEach(function(modName) {
+                        var modOption = document.createElement("div");
+                        modOption.className = "option option-toggle";
+                        var checkbox = document.createElement("input");
+                        checkbox.type = "checkbox";
+                        checkbox.id = "mod-" + modName;
+                        checkbox.addEventListener("change", function() {
+                            if (this.checked) {
+                                transport.onEvent('load-mod', modName);
+                            } else {
+                                transport.onEvent('unload-mod', modName);
+                            }
+                        });
+                        var label = document.createElement("label");
+                        label.htmlFor = "mod-" + modName;
+                        label.textContent = modName;
+                        modOption.appendChild(checkbox);
+                        modOption.appendChild(label);
+                        modsDiv.appendChild(modOption);
+                    });
+
+                    // Handle navigation clicks
+                    navItem.addEventListener('click', function() {
+                        document.querySelectorAll("#settingsPage > div.sections > nav > a").forEach(function(a) {
+                            a.classList.remove("active");
+                        });
+                        navItem.classList.add("active");
+                        settingsPanel.querySelectorAll("section").forEach(function(sec) {
+                            sec.style.display = 'none';
+                        });
+                        section.style.display = 'block';
+                    });
+                }
+
+                // Wait for the app to fully load before injecting the menu
+                if (document.readyState === 'complete' || document.readyState === 'interactive') {
+                    setTimeout(addCustomSettings, 1000);
+                } else {
+                    document.addEventListener("DOMContentLoaded", function() {
+                        setTimeout(addCustomSettings, 1000);
+                    });
+                }
+            })();
+        `;
+        return jsCode;
+    }
+
     function injectJS() {
-        splashScreen.visible = false
-        pulseOpacity.running = false
-        removeSplashTimer.running = false
-        webView.webChannel.registerObject( 'transport', transport )
+        splashScreen.visible = false;
+        pulseOpacity.running = false;
+        removeSplashTimer.running = false;
+        webView.webChannel.registerObject('transport', transport);
 
         var cssContent = cssLoader.currentThemeContent.replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/\n/g, "\\n");
         var jsContent = jsLoader.currentModContent.replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/\n/g, "\\n");
-        var themeNames = cssLoader.themeNames;
-        var modNames = jsLoader.modNames;
+        var themeNames = JSON.stringify(cssLoader.themeNames);
+        var modNames = JSON.stringify(jsLoader.modNames);
 
-        var injectedJS = "try { " +
-            "function initShellComm() { " +
-            "    new QWebChannel(qt.webChannelTransport, function(channel) { " +
-            "        window.transport = channel.objects.transport; " +
-            "        window.themeNames = " + JSON.stringify(themeNames) + "; " +
-            "        window.modNames = " + JSON.stringify(modNames) + "; " +
-            "        initCustomMenu(); " +
-            "    }); " +
-            "} " +
-            "function initCustomMenu() { /* Your JS code to add the menu */ } " +
-            "initShellComm(); " +
-            "var style = document.createElement('style'); style.id = 'dynamic-theme'; style.innerHTML = '" + cssContent + "'; document.head.appendChild(style); " +
-            "var script = document.createElement('script'); script.id = 'dynamic-mod'; script.innerHTML = '" + jsContent + "'; document.head.appendChild(script); " +
-            "} " +
-            "catch(e) { setTimeout(function() { throw e }); e.message || JSON.stringify(e) }"
+        var injectedJS = `
+            try {
+                new QWebChannel(qt.webChannelTransport, function(channel) {
+                    window.transport = channel.objects.transport;
+                    window.themeNames = ${themeNames};
+                    window.modNames = ${modNames};
+                    ${injectCustomMenuJS()}
+                });
 
-        webView.runJavaScript(injectedJS, function(err) {
-            if (!err) {
-                webView.tries = 0
+                // Inject initial CSS and JS
+                var style = document.createElement('style');
+                style.id = 'dynamic-theme';
+                style.innerHTML = '${cssContent}';
+                document.head.appendChild(style);
+
+                var script = document.createElement('script');
+                script.id = 'dynamic-mod';
+                script.innerHTML = '${jsContent}';
+                document.head.appendChild(script);
+            } catch(e) {
+                console.error(e);
+            }
+        `;
+
+        webView.runJavaScript(injectedJS, function(result) {
+            if (result === undefined) {
+                webView.tries = 0;
             } else {
-                errorDialog.text = "User Interface could not be loaded.\n\nPlease try again later or contact the Stremio support team for assistance."
-                errorDialog.detailedText = err
-                errorDialog.visible = true
-
-                console.error(err)
+                errorDialog.text = "User Interface could not be loaded.\n\nPlease try again later or contact the Stremio support team for assistance.";
+                errorDialog.detailedText = result;
+                errorDialog.visible = true;
+                console.error(result);
             }
         });
     }
@@ -540,7 +659,7 @@ ApplicationWindow {
         // Prevent ctx menu
         onContextMenuRequested: function(request) {
             request.accepted = true;
-            // Allow menu inside editalbe objects
+            // Allow menu inside editable objects
             if (request.isContentEditable) {
                 ctxMenu.popup();
             }
