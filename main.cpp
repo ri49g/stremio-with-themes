@@ -1,6 +1,9 @@
 #include <QQmlApplicationEngine>
 #include <QtWebEngine>
 #include <QSysInfo>
+#include <QDir>
+#include <QMap>
+#include <QDebug>
 
 #include <clocale>
 
@@ -36,58 +39,106 @@ typedef QApplication Application;
 
 class CssLoader : public QObject {
     Q_OBJECT
-    Q_PROPERTY(QString cssContent READ cssContent NOTIFY cssContentChanged)
+    Q_PROPERTY(QStringList themeNames READ themeNames NOTIFY themeNamesChanged)
+    Q_PROPERTY(QString currentThemeContent READ currentThemeContent NOTIFY currentThemeContentChanged)
 
 public:
     CssLoader(QObject *parent = nullptr) : QObject(parent) {
-        // Read the CSS file
-        QFile file("/home/ras/ephemeral/mods/theme.css");
-        if (file.open(QIODevice::ReadOnly | QIODevice::Text)) {
-            m_cssContent = file.readAll();
-            file.close();
+        QDir dir("/home/ras/ephemeral/mods/themes");
+        QStringList nameFilters;
+        nameFilters << "*.css";
+        QFileInfoList fileList = dir.entryInfoList(nameFilters, QDir::Files);
+        foreach(QFileInfo fileInfo, fileList) {
+            m_themeNames << fileInfo.baseName();
+            m_themeFiles[fileInfo.baseName()] = fileInfo.absoluteFilePath();
+        }
+        m_currentThemeContent = "";
+    }
+
+    QStringList themeNames() const {
+        return m_themeNames;
+    }
+
+    QString currentThemeContent() const {
+        return m_currentThemeContent;
+    }
+
+public slots:
+    void loadTheme(QString themeName) {
+        if (m_themeFiles.contains(themeName)) {
+            QFile file(m_themeFiles[themeName]);
+            if (file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+                m_currentThemeContent = file.readAll();
+                file.close();
+                emit currentThemeContentChanged();
+            } else {
+                qWarning() << "Could not open theme file:" << m_themeFiles[themeName];
+            }
         } else {
-            m_cssContent = "";
-            qWarning() << "Could not open CSS file";
+            qWarning() << "Theme not found:" << themeName;
         }
     }
 
-    QString cssContent() const {
-        return m_cssContent;
-    }
-
 signals:
-    void cssContentChanged();
+    void themeNamesChanged();
+    void currentThemeContentChanged();
 
 private:
-    QString m_cssContent;
+    QStringList m_themeNames;
+    QMap<QString, QString> m_themeFiles; // Map themeName to file path
+    QString m_currentThemeContent;
 };
 
 class JsLoader : public QObject {
     Q_OBJECT
-    Q_PROPERTY(QString jsContent READ jsContent NOTIFY jsContentChanged)
+    Q_PROPERTY(QStringList modNames READ modNames NOTIFY modNamesChanged)
+    Q_PROPERTY(QString currentModContent READ currentModContent NOTIFY currentModContentChanged)
 
 public:
     JsLoader(QObject *parent = nullptr) : QObject(parent) {
-        // Read the JS file
-        QFile file("/home/ras/ephemeral/mods/mod.js");
-        if (file.open(QIODevice::ReadOnly | QIODevice::Text)) {
-            m_jsContent = file.readAll();
-            file.close();
+        QDir dir("/home/ras/ephemeral/mods/mods");
+        QStringList nameFilters;
+        nameFilters << "*.js";
+        QFileInfoList fileList = dir.entryInfoList(nameFilters, QDir::Files);
+        foreach(QFileInfo fileInfo, fileList) {
+            m_modNames << fileInfo.baseName();
+            m_modFiles[fileInfo.baseName()] = fileInfo.absoluteFilePath();
+        }
+        m_currentModContent = "";
+    }
+
+    QStringList modNames() const {
+        return m_modNames;
+    }
+
+    QString currentModContent() const {
+        return m_currentModContent;
+    }
+
+public slots:
+    void loadMod(QString modName) {
+        if (m_modFiles.contains(modName)) {
+            QFile file(m_modFiles[modName]);
+            if (file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+                m_currentModContent = file.readAll();
+                file.close();
+                emit currentModContentChanged();
+            } else {
+                qWarning() << "Could not open mod file:" << m_modFiles[modName];
+            }
         } else {
-            m_jsContent = "";
-            qWarning() << "Could not open JS file";
+            qWarning() << "Mod not found:" << modName;
         }
     }
 
-    QString jsContent() const {
-        return m_jsContent;
-    }
-
 signals:
-    void jsContentChanged();
+    void modNamesChanged();
+    void currentModContentChanged();
 
 private:
-    QString m_jsContent;
+    QStringList m_modNames;
+    QMap<QString, QString> m_modFiles; // Map modName to file path
+    QString m_currentModContent;
 };
 
 void InitializeParameters(QQmlApplicationEngine *engine, MainApp& app) {
