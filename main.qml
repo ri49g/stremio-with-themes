@@ -37,6 +37,13 @@ ApplicationWindow {
     property bool themingActive: true
     property bool modActive: true
 
+    Keys.onPressed: {
+        if (event.key === Qt.Key_Alt) {
+            menuWindow.visible = !menuWindow.visible
+            event.accepted = true
+        }
+    }
+
     function setFullScreen(fullscreen) {
         if (fullscreen) {
             root.visibility = Window.FullScreen;
