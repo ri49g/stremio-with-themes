@@ -4,7 +4,7 @@
 
 #include <clocale>
 
-#define APP_TITLE "Stremio - Freedom to Stream"
+#define APP_TITLE "Stremio Modshell"
 
 #define DESKTOP true
 
