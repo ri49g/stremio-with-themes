@@ -129,7 +129,6 @@ class JsLoader : public QObject {
 
 public:
     JsLoader(QObject *parent = nullptr) : QObject(parent) {
-        // by default, no mods
     }
 
     QString jsContent() const {
@@ -137,7 +136,6 @@ public:
     }
 
     Q_INVOKABLE void setMods(const QStringList &enabledMods) {
-        // Combine all selected mods into one JS string
         QString combined;
         foreach (const QString &m, enabledMods) {
             QFile file("/home/ras/ephemeral/mods/mods/" + m);
