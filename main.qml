@@ -1,4 +1,3 @@
-// main.qml
 import QtQuick 2.7
 import QtWebEngine 1.4
 import QtWebChannel 1.0
@@ -34,6 +33,10 @@ ApplicationWindow {
     property var previousVisibility: Window.Windowed
     property bool wasFullScreen: false
 
+    // New properties for theming and mod toggles
+    property bool themingActive: true
+    property bool modActive: true
+
     function setFullScreen(fullscreen) {
         if (fullscreen) {
             root.visibility = Window.FullScreen;
@@ -45,13 +48,13 @@ ApplicationWindow {
     }
 
     function showWindow() {
-            if (root.wasFullScreen) {
-                root.visibility = Window.FullScreen;
-            } else {
-                root.visibility = root.previousVisibility;
-            }
-            root.raise();
-            root.requestActivate();
+        if (root.wasFullScreen) {
+            root.visibility = Window.FullScreen;
+        } else {
+            root.visibility = root.previousVisibility;
+        }
+        root.raise();
+        root.requestActivate();
     }
 
     function updatePreviousVisibility() {
@@ -60,6 +63,7 @@ ApplicationWindow {
         }
     }
 
+    // Transport
     QtObject {
         id: transport
         readonly property string shellVersion: Qt.application.version
@@ -148,7 +152,7 @@ ApplicationWindow {
         message = message.toString();
         showWindow();
         if (message !== "SHOW") {
-                onAppOpenMedia(message);
+            onAppOpenMedia(message);
         }
     }
 
@@ -168,10 +172,12 @@ ApplicationWindow {
 
     Connections {
         target: systemTray
+
         function onSignalIconMenuAboutToShow() {
             systemTray.updateIsOnTop((root.flags & Qt.WindowStaysOnTopHint) === Qt.WindowStaysOnTopHint);
             systemTray.updateVisibleAction(root.visible);
         }
+
         function onSignalShow() {
             if(root.visible) {
                 root.hide();
@@ -179,6 +185,7 @@ ApplicationWindow {
                 showWindow();
             }
         }
+
         function onSignalAlwaysOnTop() {
             root.raise()
             if (root.flags & Qt.WindowStaysOnTopHint) {
@@ -187,12 +194,14 @@ ApplicationWindow {
                 root.flags |= Qt.WindowStaysOnTopHint;
             }
         }
+
         function onSignalQuit() {
             quitApp();
         }
+
         function onSignalIconActivated() {
-            showWindow();
-        }
+           showWindow();
+       }
     }
 
     ScreenSaver {
@@ -227,6 +236,7 @@ ApplicationWindow {
             }
 
             if (streamingServer.fastReload) {
+                console.log("Streaming server: performing fast re-load")
                 streamingServer.fastReload = false
                 root.launchServer()
             } else {
@@ -242,9 +252,8 @@ ApplicationWindow {
             if (streamingServer.fastReload && error == 1) return;
             transport.queueEvent("server-crash", {"code": error, "log": streamingServer.getErrBuff()});
             showStreamingServerErr(error)
-       }
+        }
     }
-
     function showStreamingServerErr(code) {
         errorDialog.text = streamingServer.errMessage
         errorDialog.detailedText = 'Stremio streaming server has thrown an error \nQProcess::ProcessError code: '
@@ -252,7 +261,6 @@ ApplicationWindow {
             + streamingServer.getErrBuff();
         errorDialog.visible = true
     }
-
     function launchServer() {
         var node_executable = applicationDirPath + "/node"
         if (Qt.platform.os === "windows") node_executable = applicationDirPath + "/stremio-runtime.exe"
@@ -261,7 +269,6 @@ ApplicationWindow {
             "EngineFS server started at "
         )
     }
-
     Timer {
         id: stayAliveStreamingServer
         interval: 10000
@@ -275,25 +282,51 @@ ApplicationWindow {
         onMpvEvent: function(ev, args) { transport.event(ev, args) }
     }
 
-    // We modify injectJS to consider whether theming and mod are enabled
+    function getWebUrl() {
+        var params = "?loginFlow=desktop"
+        var args = Qt.application.arguments
+        var shortVer = Qt.application.version.split('.').slice(0, 2).join('.')
+
+        var webuiArg = "--webui-url="
+        for (var i=0; i!=args.length; i++) {
+            if (args[i].indexOf(webuiArg) === 0) return args[i].slice(webuiArg.length)
+        }
+
+        if (args.indexOf("--development") > -1 || debug)
+            return "http://127.0.0.1:11470/#"+params
+
+        if (args.indexOf("--staging") > -1)
+            return "https://staging.strem.io/#"+params
+
+        return "https://app.strem.io/shell-v"+shortVer+"/#"+params;
+    }
+
+    Timer {
+        id: retryTimer
+        interval: 1000
+        running: false
+        onTriggered: function () {
+            webView.tries++
+            webView.url = webView.mainUrl;
+        }
+    }
+
     function injectJS() {
         splashScreen.visible = false
         pulseOpacity.running = false
         removeSplashTimer.running = false
         webView.webChannel.registerObject( 'transport', transport )
 
-        var injectedJS = "try { initShellComm(); "
-        if (modSettingsDialog.themingEnabled) {
-            var cssContent = cssLoader.cssContent.replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/\n/g, "\\n");
-            injectedJS += "var style = document.createElement('style'); style.innerHTML = '" + cssContent + "'; document.head.appendChild(style); "
-        }
+        // If themingActive is false, skip injecting CSS
+        var cssContentStr = themingActive ? cssLoader.cssContent.replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/\n/g, "\\n") : "";
 
-        if (modSettingsDialog.modEnabled) {
-            var jsContent = jsLoader.jsContent.replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/\n/g, "\\n");
-            injectedJS += "var script = document.createElement('script'); script.innerHTML = '" + jsContent + "'; document.head.appendChild(script); "
-        }
+        // If modActive is false, skip injecting JS
+        var jsContentStr = modActive ? jsLoader.jsContent.replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/\n/g, "\\n") : "";
 
-        injectedJS += "} catch(e) { setTimeout(function() { throw e }); e.message || JSON.stringify(e) }"
+        var injectedJS = "try { initShellComm(); " +
+            (themingActive ? "var style = document.createElement('style'); style.innerHTML = '" + cssContentStr + "'; document.head.appendChild(style); " : "") +
+            (modActive ? "var script = document.createElement('script'); script.innerHTML = '" + jsContentStr + "'; document.head.appendChild(script); " : "") +
+            "} catch(e) { setTimeout(function() { throw e }); e.message || JSON.stringify(e) }"
 
         webView.runJavaScript(injectedJS, function(err) {
             if (err) {
@@ -319,13 +352,17 @@ ApplicationWindow {
     }
 
     WebEngineView {
-        id: webView
+        id: webView;
+
         focus: true
+
         readonly property string mainUrl: getWebUrl()
+
         url: webView.mainUrl;
         anchors.fill: parent
         backgroundColor: "transparent";
         property int tries: 0
+
         readonly property int maxTries: 20
 
         Component.onCompleted: function() {
@@ -540,7 +577,6 @@ ApplicationWindow {
         root.hide()
     }
 
-    // Auto-updater
     signal autoUpdaterErr(var msg, var err);
     signal autoUpdaterRestartTimer();
 
@@ -574,34 +610,53 @@ ApplicationWindow {
         Autoupdater.initAutoUpdater(autoUpdater, root.autoUpdaterErr, autoUpdaterShortTimer, autoUpdaterLongTimer, autoUpdaterRestartTimer, webView.profile.httpUserAgent);
     }
 
-    // Key handling to show/hide dialog when ALT is pressed
-    Keys.onPressed: {
-        if (event.key === Qt.Key_Alt) {
-            modSettingsDialog.toggleDialog()
+    // Additional menu window triggered by Alt key
+    Shortcut {
+        sequence: StandardKey.MoveToNextChar     // Using Alt key alone is tricky; we can simulate by `sequence: "Alt"` 
+        // If the above doesn't work as expected for just Alt, try "Alt+M" or something simpler.
+        // Some systems do not allow Alt alone as a shortcut. If needed, pick another key like Alt+M.
+        // For demonstration, let's pick Alt+M:
+        // sequence: "Alt+M"
+        // The user wanted the alt key alone. We try just "Alt".
+        sequence: "Alt"
+        onActivated: {
+            menuWindow.visible = !menuWindow.visible
         }
     }
 
-    // Handle reloadRequested from modSettingsDialog
-    // We'll just reload the webView to apply changes
-    // This function will be called via invoke from C++
-    function onReloadRequested() {
-        webView.reload()
-    }
+    Window {
+        id: menuWindow
+        visible: false
+        width: 300
+        height: 200
+        title: "Mod Controls"
+        modality: Qt.ApplicationModal
+        flags: Qt.Tool | Qt.WindowStaysOnTopHint
 
-    Connections {
-        target: modSettingsDialog
-        onReloadRequested: {
-            onReloadRequested()
-        }
-    }
+        Column {
+            anchors.centerIn: parent
+            spacing: 10
 
-    Timer {
-        id: retryTimer
-        interval: 1000
-        running: false
-        onTriggered: function () {
-            webView.tries++
-            webView.url = webView.mainUrl;
+            CheckBox {
+                text: "Theming Active"
+                checked: root.themingActive
+                onCheckedChanged: root.themingActive = checked
+            }
+
+            CheckBox {
+                text: "Mod Active"
+                checked: root.modActive
+                onCheckedChanged: root.modActive = checked
+            }
+
+            Button {
+                text: "Reload (Re-Inject)"
+                onClicked: {
+                    cssLoader.reload()
+                    jsLoader.reload()
+                    injectJS()
+                }
+            }
         }
     }
 }
