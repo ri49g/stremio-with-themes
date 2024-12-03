@@ -10,6 +10,8 @@ import com.stremio.libmpv 1.0
 import com.stremio.clipboard 1.0
 import QtQml 2.2
 
+import "autoupdater.js" as Autoupdater
+
 ApplicationWindow {
     id: root
     visible: true
@@ -24,11 +26,6 @@ ApplicationWindow {
     height: root.initialHeight
 
     property bool quitting: false
-    property bool themeEnabled: false // default off or on, up to you
-
-    color: "#0c0b11";
-    title: appTitle
-
     property var previousVisibility: Window.Windowed
     property bool wasFullScreen: false
 
@@ -43,13 +40,13 @@ ApplicationWindow {
     }
 
     function showWindow() {
-            if (root.wasFullScreen) {
-                root.visibility = Window.FullScreen;
-            } else {
-                root.visibility = root.previousVisibility;
-            }
-            root.raise();
-            root.requestActivate();
+        if (root.wasFullScreen) {
+            root.visibility = Window.FullScreen;
+        } else {
+            root.visibility = root.previousVisibility;
+        }
+        root.raise();
+        root.requestActivate();
     }
 
     function updatePreviousVisibility() {
@@ -94,34 +91,40 @@ ApplicationWindow {
             if (ev === "screensaver-toggle") shouldDisableScreensaver(args.disabled)
             if (ev === "file-close") fileDialog.close()
             if (ev === "file-open") {
-              if (typeof args !== "undefined") {
-                var fileDialogDefaults = {
-                  title: "Please choose",
-                  selectExisting: true,
-                  selectFolder: false,
-                  selectMultiple: false,
-                  nameFilters: [],
-                  selectedNameFilter: "",
-                  data: null
+                if (typeof args !== "undefined") {
+                    var fileDialogDefaults = {
+                        title: "Please choose",
+                        selectExisting: true,
+                        selectFolder: false,
+                        selectMultiple: false,
+                        nameFilters: [],
+                        selectedNameFilter: "",
+                        data: null
+                    }
+                    Object.keys(fileDialogDefaults).forEach(function(key) {
+                        fileDialog[key] = args.hasOwnProperty(key) ? args[key] : fileDialogDefaults[key]
+                    })
                 }
-                Object.keys(fileDialogDefaults).forEach(function(key) {
-                  fileDialog[key] = args.hasOwnProperty(key) ? args[key] : fileDialogDefaults[key]
-                })
-              }
-              fileDialog.open()
+                fileDialog.open()
             }
 
-            // Handle theming events
+            // handle the theming toggle event
             if (ev === "theming-toggle") {
-                themeEnabled = args.enabled
-                handleThemingToggle(args)
+                if (args.enabled) {
+                    // inject theme
+                    var cssContentEsc = cssLoader.cssContent.replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/\n/g, "\\n");
+                    var injectThemeJS = "if (!window.__themeStyle__) { var style = document.createElement('style'); style.innerHTML = '" + cssContentEsc + "'; document.head.appendChild(style); window.__themeStyle__ = style; }"
+                    webView.runJavaScript(injectThemeJS)
+                } else {
+                    // remove theme
+                    var removeThemeJS = "if (window.__themeStyle__) { window.__themeStyle__.remove(); window.__themeStyle__ = null; }"
+                    webView.runJavaScript(removeThemeJS)
+                }
             }
 
-            if (ev === "get-theming-state") {
-                // respond with current theme state
-                transport.event("theming-state", { enabled: themeEnabled })
+            if (ev === "server-crash") {
+                // handled as in original code
             }
-
         }
 
         property variant queued: []
@@ -133,15 +136,6 @@ ApplicationWindow {
             if (transport.queued) transport.queued.forEach(function(args) { transport.event.apply(transport, args) })
             transport.queued = null;
         }
-    }
-
-    function handleThemingToggle(args) {
-        // Enable/disable theme in webView by disabling the style element
-        webView.runJavaScript("(function() {\n" +
-            "if (window.__themeStyleElement) {\n" +
-            "    window.__themeStyleElement.disabled = " + (!args.enabled).toString() + ";\n" +
-            "}\n" +
-            "})();");
     }
 
     function onWindowMode(mode) {
@@ -167,7 +161,7 @@ ApplicationWindow {
         message = message.toString();
         showWindow();
         if (message !== "SHOW") {
-                onAppOpenMedia(message);
+            onAppOpenMedia(message);
         }
     }
 
@@ -191,7 +185,6 @@ ApplicationWindow {
             systemTray.updateIsOnTop((root.flags & Qt.WindowStaysOnTopHint) === Qt.WindowStaysOnTopHint);
             systemTray.updateVisibleAction(root.visible);
         }
-
         function onSignalShow() {
             if(root.visible) {
                 root.hide();
@@ -199,7 +192,6 @@ ApplicationWindow {
                 showWindow();
             }
         }
-
         function onSignalAlwaysOnTop() {
             root.raise()
             if (root.flags & Qt.WindowStaysOnTopHint) {
@@ -208,21 +200,18 @@ ApplicationWindow {
                 root.flags |= Qt.WindowStaysOnTopHint;
             }
         }
-
         function onSignalQuit() {
             quitApp();
         }
-
         function onSignalIconActivated() {
            showWindow();
-       }
+        }
     }
 
     ScreenSaver {
         id: screenSaver
         property bool disabled: false
     }
-
     Timer {
         id: timerScreensaver
         interval: 300000
@@ -250,7 +239,6 @@ ApplicationWindow {
             }
 
             if (streamingServer.fastReload) {
-                console.log("Streaming server: performing fast re-load")
                 streamingServer.fastReload = false
                 root.launchServer()
             } else {
@@ -268,7 +256,6 @@ ApplicationWindow {
             showStreamingServerErr(error)
         }
     }
-
     function showStreamingServerErr(code) {
         errorDialog.text = streamingServer.errMessage
         errorDialog.detailedText = 'Stremio streaming server has thrown an error \nQProcess::ProcessError code: '
@@ -276,7 +263,6 @@ ApplicationWindow {
             + streamingServer.getErrBuff();
         errorDialog.visible = true
     }
-
     function launchServer() {
         var node_executable = applicationDirPath + "/node"
         if (Qt.platform.os === "windows") node_executable = applicationDirPath + "/stremio-runtime.exe"
@@ -285,7 +271,6 @@ ApplicationWindow {
             "EngineFS server started at "
         )
     }
-
     Timer {
         id: stayAliveStreamingServer
         interval: 10000
@@ -299,19 +284,46 @@ ApplicationWindow {
         onMpvEvent: function(ev, args) { transport.event(ev, args) }
     }
 
+    function getWebUrl() {
+        var params = "?loginFlow=desktop"
+        var args = Qt.application.arguments
+        var shortVer = Qt.application.version.split('.').slice(0, 2).join('.')
+
+        var webuiArg = "--webui-url="
+        for (var i=0; i!=args.length; i++) {
+            if (args[i].indexOf(webuiArg) === 0) return args[i].slice(webuiArg.length)
+        }
+
+        if (args.indexOf("--development") > -1 || debug)
+            return "http://127.0.0.1:11470/#"+params
+
+        if (args.indexOf("--staging") > -1)
+            return "https://staging.strem.io/#"+params
+
+        return "https://app.strem.io/shell-v"+shortVer+"/#"+params;
+    }
+
+    Timer {
+        id: retryTimer
+        interval: 1000
+        running: false
+        onTriggered: function () {
+            webView.tries++
+            webView.url = webView.mainUrl;
+        }
+    }
+
     function injectJS() {
         splashScreen.visible = false
         pulseOpacity.running = false
         removeSplashTimer.running = false
-        webView.webChannel.registerObject('transport', transport )
+        webView.webChannel.registerObject( 'transport', transport )
 
-        var cssContent = cssLoader.cssContent.replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/\n/g, "\\n");
+        // do not automatically inject theme here, only mod.js
         var jsContent = jsLoader.jsContent.replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/\n/g, "\\n");
-
         var injectedJS = "try { initShellComm(); " +
-            "var style = document.createElement('style'); style.innerHTML = '" + cssContent + "'; document.head.appendChild(style); window.__themeStyleElement = style; window.__themeStyleElement.disabled = " + (!themeEnabled).toString() + "; " +
-            "var script = document.createElement('script'); script.innerHTML = '" + jsContent + "'; document.head.appendChild(script); " +
-            "} catch(e) { setTimeout(function() { throw e }); e.message || JSON.stringify(e) }"
+                         "var script = document.createElement('script'); script.innerHTML = '" + jsContent + "'; document.head.appendChild(script); " +
+                         "} catch(e) { setTimeout(function() { throw e }); e.message || JSON.stringify(e) }"
 
         webView.runJavaScript(injectedJS, function(err) {
             if (err) {
@@ -359,7 +371,6 @@ ApplicationWindow {
                 splashScreen.visible = false
                 pulseOpacity.running = false
             }
-
             if (successfullyLoaded) {
                 injectJS()
             }
@@ -455,16 +466,6 @@ ApplicationWindow {
         webChannel: wChannel
     }
 
-    Timer {
-        id: retryTimer
-        interval: 1000
-        running: false
-        onTriggered: function () {
-            webView.tries++
-            webView.url = webView.mainUrl;
-        }
-    }
-
     WebChannel {
         id: wChannel
     }
@@ -545,6 +546,7 @@ ApplicationWindow {
         if (!enabledAlwaysOnTop) {
             root.flags &= ~Qt.WindowStaysOnTopHint;
         }
+
         updatePreviousVisibility();
         transport.event("win-visibility-changed", { visible: root.visible, visibility: root.visibility,
                             isFullscreen: root.visibility === Window.FullScreen })
@@ -580,11 +582,13 @@ ApplicationWindow {
         interval: 5 * 60 * 1000
         running: false
         onTriggered: function () { }
+    }
 
     Component.onCompleted: function() {
         console.log('Stremio Shell version: '+Qt.application.version)
         root.height = root.initialHeight
         root.width = root.initialWidth
+
         var args = Qt.application.arguments
         if (args.indexOf("--development") > -1 && args.indexOf("--streaming-server") === -1)
             console.log("Skipping launch of streaming server under --development");
@@ -594,7 +598,6 @@ ApplicationWindow {
         var lastArg = args[1];
         if (args.length > 1 && !lastArg.match('^--')) onAppOpenMedia(lastArg)
 
-        console.info(" **** Completed. Loading Autoupdater ***")
         Autoupdater.initAutoUpdater(autoUpdater, root.autoUpdaterErr, autoUpdaterShortTimer, autoUpdaterLongTimer, autoUpdaterRestartTimer, webView.profile.httpUserAgent);
     }
 }
