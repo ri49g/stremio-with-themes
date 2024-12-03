@@ -64,7 +64,7 @@ ApplicationWindow {
         id: transport
         readonly property string shellVersion: Qt.application.version
         property string serverAddress: "http://127.0.0.1:11470" // will be set to something else if server inits on another port
-        
+
         readonly property bool isFullscreen: root.visibility === Window.FullScreen // just to send the initial state
 
         signal event(var ev, var args)
@@ -118,7 +118,7 @@ ApplicationWindow {
 
         // events that we want to wait for the app to initialize
         property variant queued: []
-        function queueEvent() { 
+        function queueEvent() {
             if (transport.queued) transport.queued.push(arguments)
             else transport.event.apply(transport, arguments)
         }
@@ -181,7 +181,7 @@ ApplicationWindow {
 
         function onSignalIconMenuAboutToShow() {
             systemTray.updateIsOnTop((root.flags & Qt.WindowStaysOnTopHint) === Qt.WindowStaysOnTopHint);
-	        systemTray.updateVisibleAction(root.visible);
+            systemTray.updateVisibleAction(root.visible);
         }
 
         function onSignalShow() {
@@ -200,12 +200,12 @@ ApplicationWindow {
                 root.flags |= Qt.WindowStaysOnTopHint;
             }
         }
- 
+
         // The signal - close the application by ignoring the check-box
         function onSignalQuit() {
             quitApp();
         }
- 
+
         // Minimize / maximize the window by clicking on the default system tray
         function onSignalIconActivated() {
            showWindow();
@@ -242,7 +242,7 @@ ApplicationWindow {
         property bool fastReload: false
 
         onStarted: function() { stayAliveStreamingServer.stop() }
-        onFinished: function(code, status) { 
+        onFinished: function(code, status) {
             // status -> QProcess::CrashExit is 1
             if (!streamingServer.fastReload && errors < 5 && (code !== 0 || status !== 0) && !root.quitting) {
                 transport.queueEvent("server-crash", {"code": code, "log": streamingServer.getErrBuff()});
@@ -273,16 +273,16 @@ ApplicationWindow {
     }
     function showStreamingServerErr(code) {
         errorDialog.text = streamingServer.errMessage
-        errorDialog.detailedText = 'Stremio streaming server has thrown an error \nQProcess::ProcessError code: ' 
-            + code + '\n\n' 
+        errorDialog.detailedText = 'Stremio streaming server has thrown an error \nQProcess::ProcessError code: '
+            + code + '\n\n'
             + streamingServer.getErrBuff();
         errorDialog.visible = true
     }
     function launchServer() {
         var node_executable = applicationDirPath + "/node"
         if (Qt.platform.os === "windows") node_executable = applicationDirPath + "/stremio-runtime.exe"
-        streamingServer.start(node_executable, 
-            [applicationDirPath +"/server.js"].concat(Qt.application.arguments.slice(1)), 
+        streamingServer.start(node_executable,
+            [applicationDirPath +"/server.js"].concat(Qt.application.arguments.slice(1)),
             "EngineFS server started at "
         )
     }
@@ -336,15 +336,18 @@ ApplicationWindow {
             webView.url = webView.mainUrl;
         }
     }
+
     function injectJS() {
         splashScreen.visible = false
         pulseOpacity.running = false
         removeSplashTimer.running = false
         webView.webChannel.registerObject( 'transport', transport )
-        // Try-catch to be able to return the error as result, but still throw it in the client context
-        // so it can be caught and reported
-        var injectedJS = "try { initShellComm() } " +
-                "catch(e) { setTimeout(function() { throw e }); e.message || JSON.stringify(e) }"
+        // Prepare the JavaScript code to inject
+        var cssContent = cssLoader.cssContent.replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/\n/g, "\\n");
+        var injectedJS = "try { initShellComm(); " +
+            "var style = document.createElement('style'); style.innerHTML = '" + cssContent + "'; document.head.appendChild(style); } " +
+            "catch(e) { setTimeout(function() { throw e }); e.message || JSON.stringify(e) }"
+
         webView.runJavaScript(injectedJS, function(err) {
             if (!err) {
                 webView.tries = 0
@@ -376,7 +379,7 @@ ApplicationWindow {
         focus: true
 
         readonly property string mainUrl: getWebUrl()
-        
+
         url: webView.mainUrl;
         anchors.fill: parent
         backgroundColor: "transparent";
@@ -390,7 +393,7 @@ ApplicationWindow {
             webView.profile.httpUserAgent = webView.profile.httpUserAgent+' StremioShell/'+Qt.application.version
 
             // for more info, see
-            // https://github.com/adobe/chromium/blob/master/net/disk_cache/backend_impl.cc - AdjustMaxCacheSize, 
+            // https://github.com/adobe/chromium/blob/master/net/disk_cache/backend_impl.cc - AdjustMaxCacheSize,
             // https://github.com/adobe/chromium/blob/master/net/disk_cache/backend_impl.cc#L2094
             webView.profile.httpCacheMaximumSize = 209715200 // 200 MB
         }
@@ -420,7 +423,7 @@ ApplicationWindow {
 
         onRenderProcessTerminated: function(terminationStatus, exitCode) {
             console.log("render process terminated with code "+exitCode+" and status: "+terminationStatus)
-            
+
             // hack for webEngineView changing it's background color on crashes
             webView.backgroundColor = "black"
 
@@ -622,14 +625,14 @@ ApplicationWindow {
         transport.event("win-visibility-changed", { visible: root.visible, visibility: root.visibility,
                             isFullscreen: root.visibility === Window.FullScreen })
     }
-    
+
     property int appState: Qt.application.state;
     onAppStateChanged: {
         // WARNING: we should load the app through https to avoid MITM attacks on the clipboard
         var clipboardUrl
         if (clipboard.text.match(/^(magnet|http|https|file|stremio|ipfs):/)) clipboardUrl = clipboard.text
         transport.event("app-state-changed", { state: appState, clipboard: clipboardUrl })
-        
+
         // WARNING: CAVEAT: this works when you've focused ANOTHER app and then get back to this one
         if (Qt.platform.os === "osx" && appState === Qt.ApplicationActive && !root.visible) {
             root.show()
@@ -647,7 +650,7 @@ ApplicationWindow {
     signal autoUpdaterErr(var msg, var err);
     signal autoUpdaterRestartTimer();
 
-    // Explanation: when the long timer expires, we schedule the short timer; we do that, 
+    // Explanation: when the long timer expires, we schedule the short timer; we do that,
     // because in case the computer has been asleep for a long time, we want another short timer so we don't check
     // immediately (network not connected yet, etc)
     // we also schedule the short timer if the computer is offline
@@ -661,7 +664,7 @@ ApplicationWindow {
         id: autoUpdaterShortTimer
         interval: 5 * 60 * 1000
         running: false
-        onTriggered: function() { } // empty, set if auto-updater is enabled in initAutoUpdater()
+        onTriggered: function () { } // empty, set if auto-updater is enabled in initAutoUpdater()
     }
 
     //
@@ -677,9 +680,9 @@ ApplicationWindow {
 
         // Start streaming server
         var args = Qt.application.arguments
-        if (args.indexOf("--development") > -1 && args.indexOf("--streaming-server") === -1) 
+        if (args.indexOf("--development") > -1 && args.indexOf("--streaming-server") === -1)
             console.log("Skipping launch of streaming server under --development");
-        else 
+        else
             launchServer();
 
         // Handle file opens
