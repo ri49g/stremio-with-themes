@@ -26,9 +26,41 @@ typedef QApplication Application;
 #include "razerchroma.h"
 #include "qclipboardproxy.h"
 
+#include <QObject>
+#include <QFile>
+#include <QDebug>
+
 #else
 #include <QGuiApplication>
 #endif
+
+class CssLoader : public QObject {
+    Q_OBJECT
+    Q_PROPERTY(QString cssContent READ cssContent NOTIFY cssContentChanged)
+
+public:
+    CssLoader(QObject *parent = nullptr) : QObject(parent) {
+        // Read the CSS file
+        QFile file("/home/ras/ephemeral/css/theme.css");
+        if (file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+            m_cssContent = file.readAll();
+            file.close();
+        } else {
+            m_cssContent = "";
+            qWarning() << "Could not open CSS file";
+        }
+    }
+
+    QString cssContent() const {
+        return m_cssContent;
+    }
+
+signals:
+    void cssContentChanged();
+
+private:
+    QString m_cssContent;
+};
 
 void InitializeParameters(QQmlApplicationEngine *engine, MainApp& app) {
     QQmlContext *ctx = engine->rootContext();
@@ -46,6 +78,10 @@ void InitializeParameters(QQmlApplicationEngine *engine, MainApp& app) {
     #else
         ctx->setContextProperty("debug", false);
     #endif
+
+    // Add the CssLoader instance
+    CssLoader *cssLoader = new CssLoader();
+    ctx->setContextProperty("cssLoader", cssLoader);
 }
 
 int main(int argc, char **argv)
@@ -94,7 +130,7 @@ int main(int argc, char **argv)
     // Qt sets the locale in the QGuiApplication constructor, but libmpv
     // requires the LC_NUMERIC category to be set to "C", so change it back.
     std::setlocale(LC_NUMERIC, "C");
-    
+
 
     static QQmlApplicationEngine* engine = new QQmlApplicationEngine();
 
@@ -104,7 +140,7 @@ int main(int argc, char **argv)
     qmlRegisterType<RazerChroma>("com.stremio.razerchroma", 1, 0, "RazerChroma");
     qmlRegisterType<ClipboardProxy>("com.stremio.clipboard", 1, 0, "Clipboard");
 
-    InitializeParameters(engine, app); 
+    InitializeParameters(engine, app);
 
     engine->load(QUrl(QStringLiteral("qrc:/main.qml")));
 
@@ -118,3 +154,5 @@ int main(int argc, char **argv)
     engine = nullptr;
     return ret;
 }
+
+#include "main.moc" // Add this line at the end of the file
