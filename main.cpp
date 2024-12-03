@@ -71,7 +71,8 @@ public:
         // Read the JS file
         QFile file("/home/ras/ephemeral/mods/mod.js");
         if (file.open(QIODevice::ReadOnly | QIODevice::Text)) {
-            m_jsContent = file.readAll();
+            QByteArray content = file.readAll();
+            m_jsContent = QString::fromLatin1(content.toBase64());
             file.close();
         } else {
             m_jsContent = "";
@@ -89,6 +90,7 @@ signals:
 private:
     QString m_jsContent;
 };
+
 
 void InitializeParameters(QQmlApplicationEngine *engine, MainApp& app) {
     QQmlContext *ctx = engine->rootContext();
