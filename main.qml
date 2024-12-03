@@ -338,46 +338,46 @@ ApplicationWindow {
     }
 
     function injectJS() {
-        splashScreen.visible = false
-        pulseOpacity.running = false
-        removeSplashTimer.running = false
-        webView.webChannel.registerObject( 'transport', transport )
-        // Prepare the CSS code to inject
-        var cssContent = cssLoader.cssContent.replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/\n/g, "\\n");
+    splashScreen.visible = false
+    pulseOpacity.running = false
+    removeSplashTimer.running = false
+    webView.webChannel.registerObject('transport', transport)
 
-        // Prepare the JavaScript code to inject
-        var jsContent = jsLoader.jsContent.replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/\n/g, "\\n");
+    // Prepare the CSS code to inject
+    var cssContent = cssLoader.cssContent.replace(/\\/g, '\\\\').replace(/`/g, "\\`").replace(/\$/g, "\\$").replace(/\n/g, "\\n");
 
-        var injectedJS = "try { initShellComm(); " +
-            "var style = document.createElement('style'); style.innerHTML = '" + cssContent + "'; document.head.appendChild(style); " +
-            "var script = document.createElement('script'); script.innerHTML = '" + jsContent + "'; document.head.appendChild(script); " +
-            "} " +
-            "catch(e) { setTimeout(function() { throw e }); e.message || JSON.stringify(e) }"
+    // Prepare the JavaScript code to inject
+    var jsContentBase64 = Qt.atob(jsLoader.jsContent.toBase64());
 
-        webView.runJavaScript(injectedJS, function(err) {
-            if (!err) {
-                webView.tries = 0
-            } else {
-                errorDialog.text = "User Interface could not be loaded.\n\nPlease try again later or contact the Stremio support team for assistance."
-                errorDialog.detailedText = err
-                errorDialog.visible = true
+    var injectedJS = `
+        try {
+            initShellComm();
+            var style = document.createElement('style');
+            style.innerHTML = \`${cssContent}\`;
+            document.head.appendChild(style);
 
-                console.error(err)
-            }
-        });
-    }
-
-    // We want to remove the splash after a minute
-    Timer {
-        id: removeSplashTimer
-        interval: 90000
-        running: true
-        repeat: false
-        onTriggered: function () {
-            webView.backgroundColor = "transparent"
-            injectJS()
+            // Wait for DOM to be fully loaded
+            document.addEventListener('DOMContentLoaded', function() {
+                var scriptContent = atob('${jsContentBase64}');
+                eval(scriptContent);
+            });
+        } catch(e) {
+            console.error('Injection error:', e);
         }
-    }
+    `;
+
+    webView.runJavaScript(injectedJS, function(result) {
+        if (result === null || result === undefined) {
+            webView.tries = 0;
+        } else {
+            console.error('JavaScript execution error:', result);
+            errorDialog.text = "An error occurred while injecting scripts.\n\nPlease check the console for more details."
+            errorDialog.detailedText = JSON.stringify(result);
+            errorDialog.visible = true;
+        }
+    });
+}
+
 
     WebEngineView {
         id: webView;
