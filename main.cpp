@@ -1,3 +1,4 @@
+// main.cpp
 #include <QQmlApplicationEngine>
 #include <QtWebEngine>
 #include <QSysInfo>
@@ -13,12 +14,12 @@
 typedef QApplication Application;
 
 #include <QQmlEngine>
+#include <QQmlContext>
 
 #include <QStandardPaths>
-
 #include <QSystemTrayIcon>
-#include "systemtray.h"
 
+#include "systemtray.h"
 #include "mainapplication.h"
 #include "stremioprocess.h"
 #include "mpv.h"
@@ -29,6 +30,11 @@ typedef QApplication Application;
 #include <QObject>
 #include <QFile>
 #include <QDebug>
+#include <QDialog>
+#include <QCheckBox>
+#include <QPushButton>
+#include <QVBoxLayout>
+#include <QHBoxLayout>
 
 #else
 #include <QGuiApplication>
@@ -90,7 +96,92 @@ private:
     QString m_jsContent;
 };
 
-void InitializeParameters(QQmlApplicationEngine *engine, MainApp& app) {
+// A small dialog to control the mod and theming settings
+class ModSettingsDialog : public QDialog {
+    Q_OBJECT
+    Q_PROPERTY(bool themingEnabled READ themingEnabled WRITE setThemingEnabled NOTIFY themingEnabledChanged)
+    Q_PROPERTY(bool modEnabled READ modEnabled WRITE setModEnabled NOTIFY modEnabledChanged)
+
+public:
+    ModSettingsDialog(QWidget *parent = nullptr) : QDialog(parent) {
+        setWindowTitle("Mod & Theme Settings");
+        setModal(false);
+
+        // Create UI elements
+        m_themingCheck = new QCheckBox("Enable Theming");
+        m_modCheck = new QCheckBox("Enable Mod");
+        m_reloadButton = new QPushButton("Reload");
+
+        m_themingCheck->setChecked(true);
+        m_modCheck->setChecked(true);
+
+        QVBoxLayout *vLayout = new QVBoxLayout(this);
+        vLayout->addWidget(m_themingCheck);
+        vLayout->addWidget(m_modCheck);
+
+        QHBoxLayout *hLayout = new QHBoxLayout();
+        hLayout->addStretch(1);
+        hLayout->addWidget(m_reloadButton);
+        vLayout->addLayout(hLayout);
+
+        connect(m_themingCheck, &QCheckBox::toggled, this, &ModSettingsDialog::setThemingEnabled);
+        connect(m_modCheck, &QCheckBox::toggled, this, &ModSettingsDialog::setModEnabled);
+        connect(m_reloadButton, &QPushButton::clicked, this, &ModSettingsDialog::onReloadClicked);
+
+        resize(200, 120);
+    }
+
+    bool themingEnabled() const { return m_themingEnabled; }
+    bool modEnabled() const { return m_modEnabled; }
+
+public slots:
+    void setThemingEnabled(bool enabled) {
+        if (m_themingEnabled != enabled) {
+            m_themingEnabled = enabled;
+            emit themingEnabledChanged();
+        }
+    }
+
+    void setModEnabled(bool enabled) {
+        if (m_modEnabled != enabled) {
+            m_modEnabled = enabled;
+            emit modEnabledChanged();
+        }
+    }
+
+    Q_INVOKABLE void showDialog() {
+        show();
+        raise();
+        activateWindow();
+    }
+
+    Q_INVOKABLE void toggleDialog() {
+        if (isVisible()) {
+            hide();
+        } else {
+            showDialog();
+        }
+    }
+
+signals:
+    void themingEnabledChanged();
+    void modEnabledChanged();
+    void reloadRequested();
+
+private slots:
+    void onReloadClicked() {
+        emit reloadRequested();
+    }
+
+private:
+    bool m_themingEnabled = true;
+    bool m_modEnabled = true;
+    QCheckBox *m_themingCheck;
+    QCheckBox *m_modCheck;
+    QPushButton *m_reloadButton;
+};
+
+void InitializeParameters(QQmlApplicationEngine *engine, MainApp& app, ModSettingsDialog *modSettings) {
     QQmlContext *ctx = engine->rootContext();
     SystemTray * systemTray = new SystemTray();
 
@@ -114,16 +205,16 @@ void InitializeParameters(QQmlApplicationEngine *engine, MainApp& app) {
     // Add the JsLoader instance
     JsLoader *jsLoader = new JsLoader();
     ctx->setContextProperty("jsLoader", jsLoader);
+
+    // Add the mod settings dialog instance
+    ctx->setContextProperty("modSettingsDialog", modSettings);
 }
+
 
 int main(int argc, char **argv)
 {
     qputenv("QTWEBENGINE_CHROMIUM_FLAGS", "--autoplay-policy=no-user-gesture-required");
     #ifdef _WIN32
-    // Default to ANGLE (DirectX), because that seems to eliminate so many issues on Windows
-    // Also, according to the docs here: https://wiki.qt.io/Qt_5_on_Windows_ANGLE_and_OpenGL, ANGLE is also preferrable
-    // We do not need advanced OpenGL features but we need more universal support
-
     Application::setAttribute(Qt::AA_UseOpenGLES);
     auto winVer = QSysInfo::windowsVersion();
     if(winVer <= QSysInfo::WV_WINDOWS8 && winVer != QSysInfo::WV_None) {
@@ -134,7 +225,6 @@ int main(int argc, char **argv)
     }
     #endif
 
-    // This is really broken on Linux
     #ifndef Q_OS_LINUX
     Application::setAttribute(Qt::AA_EnableHighDpiScaling);
     #endif
@@ -151,18 +241,13 @@ int main(int argc, char **argv)
             app.sendMessage( app.arguments().at(1).toUtf8() );
         else
             app.sendMessage( "SHOW" );
-        //app.sendMessage( app.arguments().join(' ').toUtf8() );
         return 0;
     }
     #endif
 
     app.setWindowIcon(QIcon(":/images/stremio_window.png"));
 
-
-    // Qt sets the locale in the QGuiApplication constructor, but libmpv
-    // requires the LC_NUMERIC category to be set to "C", so change it back.
     std::setlocale(LC_NUMERIC, "C");
-
 
     static QQmlApplicationEngine* engine = new QQmlApplicationEngine();
 
@@ -172,19 +257,24 @@ int main(int argc, char **argv)
     qmlRegisterType<RazerChroma>("com.stremio.razerchroma", 1, 0, "RazerChroma");
     qmlRegisterType<ClipboardProxy>("com.stremio.clipboard", 1, 0, "Clipboard");
 
-    InitializeParameters(engine, app);
+    ModSettingsDialog modSettings;
+    InitializeParameters(engine, app, &modSettings);
 
     engine->load(QUrl(QStringLiteral("qrc:/main.qml")));
 
-    #ifndef Q_OS_MACOS
-    QObject::connect( &app, &SingleApplication::receivedMessage, &app, &MainApp::processMessage );
-    #endif
-    QObject::connect( &app, SIGNAL(receivedMessage(QVariant, QVariant)), engine->rootObjects().value(0),
-                      SLOT(onAppMessageReceived(QVariant, QVariant)) );
+    QObject *rootObject = engine->rootObjects().value(0);
+    QObject::connect(&app, SIGNAL(receivedMessage(QVariant,QVariant)), rootObject, SLOT(onAppMessageReceived(QVariant,QVariant)));
+
+    // When reloadRequested is triggered from dialog, we re-load the webview
+    QObject::connect(&modSettings, &ModSettingsDialog::reloadRequested, [rootObject]() {
+        // We emit a signal to QML that can be handled by Connections to reload the UI
+        QMetaObject::invokeMethod(rootObject, "onReloadRequested");
+    });
+
     int ret = app.exec();
     delete engine;
     engine = nullptr;
     return ret;
 }
 
-#include "main.moc" // Add this line at the end of the file
+#include "main.moc"
