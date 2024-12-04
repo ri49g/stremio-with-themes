@@ -1,3 +1,4 @@
+// main.cpp
 #include <QQmlApplicationEngine>
 #include <QtWebEngine>
 #include <QSysInfo>
@@ -120,10 +121,6 @@ int main(int argc, char **argv)
 {
     qputenv("QTWEBENGINE_CHROMIUM_FLAGS", "--autoplay-policy=no-user-gesture-required");
     #ifdef _WIN32
-    // Default to ANGLE (DirectX), because that seems to eliminate so many issues on Windows
-    // Also, according to the docs here: https://wiki.qt.io/Qt_5_on_Windows_ANGLE_and_OpenGL, ANGLE is also preferrable
-    // We do not need advanced OpenGL features but we need more universal support
-
     Application::setAttribute(Qt::AA_UseOpenGLES);
     auto winVer = QSysInfo::windowsVersion();
     if(winVer <= QSysInfo::WV_WINDOWS8 && winVer != QSysInfo::WV_None) {
@@ -134,7 +131,6 @@ int main(int argc, char **argv)
     }
     #endif
 
-    // This is really broken on Linux
     #ifndef Q_OS_LINUX
     Application::setAttribute(Qt::AA_EnableHighDpiScaling);
     #endif
@@ -151,18 +147,13 @@ int main(int argc, char **argv)
             app.sendMessage( app.arguments().at(1).toUtf8() );
         else
             app.sendMessage( "SHOW" );
-        //app.sendMessage( app.arguments().join(' ').toUtf8() );
         return 0;
     }
     #endif
 
     app.setWindowIcon(QIcon(":/images/stremio_window.png"));
 
-
-    // Qt sets the locale in the QGuiApplication constructor, but libmpv
-    // requires the LC_NUMERIC category to be set to "C", so change it back.
     std::setlocale(LC_NUMERIC, "C");
-
 
     static QQmlApplicationEngine* engine = new QQmlApplicationEngine();
 
@@ -187,4 +178,4 @@ int main(int argc, char **argv)
     return ret;
 }
 
-#include "main.moc" // Add this line at the end of the file
+#include "main.moc"
