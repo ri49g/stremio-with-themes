@@ -60,7 +60,6 @@ private:
     QString m_cssContent;
 
     void loadCss() {
-        // load all .css files
         QString basePath = "/home/ras/ephemeral/inject/themes";
         QDir dir(basePath);
         if (!dir.exists()) {
@@ -112,7 +111,6 @@ private:
     QString m_jsContent;
 
     void loadJs() {
-        // load all .js files
         QString basePath = "/home/ras/ephemeral/inject/mods";
         QDir dir(basePath);
         if (!dir.exists()) {
@@ -140,7 +138,6 @@ private:
     }
 };
 
-// A helper class to download mods/themes and save them to disk
 class Downloader : public QObject {
     Q_OBJECT
 public:
@@ -149,7 +146,7 @@ public:
     }
 
     Q_INVOKABLE void downloadMod(const QString &url) {
-        // Download the file and save it into the mods folder
+        qDebug() << "Attempting to download mod from:" << url;
         QString basePath = "/home/ras/ephemeral/inject/mods";
         QDir dir(basePath);
         if (!dir.exists()) {
@@ -175,7 +172,6 @@ public:
         QByteArray data = reply->readAll();
         reply->deleteLater();
 
-        // Extract filename from URL
         QString fileName = QUrl(url).fileName();
         if (fileName.isEmpty()) {
             fileName = "downloaded_mod.js";
@@ -194,7 +190,7 @@ public:
     }
 
     Q_INVOKABLE void downloadTheme(const QString &url) {
-        // Download and save to themes folder (for future usage)
+        qDebug() << "Attempting to download theme from:" << url;
         QString basePath = "/home/ras/ephemeral/inject/themes";
         QDir dir(basePath);
         if (!dir.exists()) {
@@ -248,7 +244,6 @@ void InitializeParameters(QQmlApplicationEngine *engine, MainApp& app) {
     ctx->setContextProperty("applicationDirPath", QGuiApplication::applicationDirPath());
     ctx->setContextProperty("appTitle", QString(APP_TITLE));
     ctx->setContextProperty("autoUpdater", app.autoupdater);
-
     ctx->setContextProperty("systemTray", systemTray);
 
     #ifdef QT_DEBUG
