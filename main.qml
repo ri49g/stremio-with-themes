@@ -1,3 +1,4 @@
+// main.qml
 import QtQuick 2.7
 import QtWebEngine 1.4
 import QtWebChannel 1.0
@@ -65,7 +66,6 @@ ApplicationWindow {
         property string serverAddress: "http://127.0.0.1:11470"
         readonly property bool isFullscreen: root.visibility === Window.FullScreen
         signal event(var ev, var args)
-
         function onEvent(ev, args) {
             if (ev === "quit") quitApp()
             if (ev === "app-ready") transport.flushQueue()
@@ -97,23 +97,38 @@ ApplicationWindow {
             if (ev === "file-open") {
                 if (typeof args !== "undefined") {
                     var fileDialogDefaults = {
-                        title: "Please choose",
-                        selectExisting: true,
-                        selectFolder: false,
-                        selectMultiple: false,
-                        nameFilters: [],
-                        selectedNameFilter: "",
-                        data: null
+                      title: "Please choose",
+                      selectExisting: true,
+                      selectFolder: false,
+                      selectMultiple: false,
+                      nameFilters: [],
+                      selectedNameFilter: "",
+                      data: null
                     }
                     Object.keys(fileDialogDefaults).forEach(function(key) {
-                        fileDialog[key] = args.hasOwnProperty(key) ? args[key] : fileDialogDefaults[key]
+                      fileDialog[key] = args.hasOwnProperty(key) ? args[key] : fileDialogDefaults[key]
                     })
                 }
                 fileDialog.open()
             }
+
+            if (ev === "download-mod") {
+                // args.url
+                // Use downloader object exposed from C++
+                downloader.downloadMod(args.url)
+            }
+
+            if (ev === "download-theme") {
+                downloader.downloadTheme(args.url)
+            }
+
+            if (ev === "reload-mods-themes") {
+                cssLoader.reload();
+                jsLoader.reload();
+                injectJS(); // re-inject with new content
+            }
         }
 
-        // Existing queue management methods
         property variant queued: []
         function queueEvent() {
             if (transport.queued) transport.queued.push(arguments)
@@ -122,58 +137,6 @@ ApplicationWindow {
         function flushQueue() {
             if (transport.queued) transport.queued.forEach(function(args) { transport.event.apply(transport, args) })
             transport.queued = null;
-        }
-
-        // New methods added to transport QtObject
-
-        /**
-         * Downloads a mod or theme from the specified URL and saves it to the appropriate directory.
-         * @param {string} url - The URL to download the mod/theme from.
-         * @param {string} type - The type of the file ('mod' or 'theme').
-         */
-        function downloadMod(url, type) {
-            var xhr = new XMLHttpRequest();
-            xhr.open("GET", url, true);
-            xhr.responseType = "text";
-            
-            xhr.onload = function() {
-                if (xhr.status === 200) {
-                    var content = xhr.responseText;
-                    var filename = url.split('/').pop();
-                    var targetDir = type === 'mod' ? '/home/ras/ephemeral/inject/mods/' : '/home/ras/ephemeral/inject/themes/';
-                    
-                    var file = new QFile(targetDir + filename);
-                    if (file.open(QIODevice.WriteOnly)) {
-                        file.write(content);
-                        file.close();
-                        transport.event("mod-downloaded", {success: true, type: type});
-                    } else {
-                        transport.event("mod-downloaded", {success: false, error: "Failed to write file"});
-                    }
-                } else {
-                    transport.event("mod-downloaded", {success: false, error: "Download failed"});
-                }
-            };
-            
-            xhr.onerror = function() {
-                transport.event("mod-downloaded", {success: false, error: "Network error"});
-            };
-            
-            xhr.send();
-        }
-
-        /**
-         * Reloads the CSS and JS content by reinitializing the loaders and updates the corresponding properties.
-         */
-        function reloadMods() {
-            // Reload CSS and JS content
-            var cssLoader = new CssLoader();
-            var jsLoader = new JsLoader();
-            
-            m_cssContent = cssLoader.cssContent;
-            m_jsContent = jsLoader.jsContent;
-            
-            transport.event("mods-reloaded", {});
         }
     }
 
@@ -220,12 +183,10 @@ ApplicationWindow {
 
     Connections {
         target: systemTray
-
         function onSignalIconMenuAboutToShow() {
             systemTray.updateIsOnTop((root.flags & Qt.WindowStaysOnTopHint) === Qt.WindowStaysOnTopHint);
             systemTray.updateVisibleAction(root.visible);
         }
-
         function onSignalShow() {
             if(root.visible) {
                 root.hide();
@@ -233,7 +194,6 @@ ApplicationWindow {
                 showWindow();
             }
         }
-
         function onSignalAlwaysOnTop() {
             root.raise()
             if (root.flags & Qt.WindowStaysOnTopHint) {
@@ -242,14 +202,12 @@ ApplicationWindow {
                 root.flags |= Qt.WindowStaysOnTopHint;
             }
         }
-
         function onSignalQuit() {
             quitApp();
         }
-
         function onSignalIconActivated() {
            showWindow();
-       }
+        }
     }
 
     ScreenSaver {
@@ -299,7 +257,7 @@ ApplicationWindow {
             if (streamingServer.fastReload && error == 1) return;
             transport.queueEvent("server-crash", {"code": error, "log": streamingServer.getErrBuff()});
             showStreamingServerErr(error)
-       }
+        }
     }
     function showStreamingServerErr(code) {
         errorDialog.text = streamingServer.errMessage
@@ -362,18 +320,15 @@ ApplicationWindow {
         splashScreen.visible = false
         pulseOpacity.running = false
         removeSplashTimer.running = false
-        webView.webChannel.registerObject( 'transport', transport )
+        webView.webChannel.registerObject('transport', transport )
 
-        // The CSS and JS content now come from cssLoader and jsLoader,
-        // which have concatenated all files in their respective directories.
         var cssContent = cssLoader.cssContent.replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/\n/g, "\\n");
         var jsContent = jsLoader.jsContent.replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/\n/g, "\\n");
 
         var injectedJS = "try { initShellComm(); " +
             "var style = document.createElement('style'); style.innerHTML = '" + cssContent + "'; document.head.appendChild(style); " +
             "var script = document.createElement('script'); script.innerHTML = '" + jsContent + "'; document.head.appendChild(script); " +
-            "} " +
-            "catch(e) { setTimeout(function() { throw e }); e.message || JSON.stringify(e) }"
+            "} catch(e) { setTimeout(function() { throw e }); e.message || JSON.stringify(e) }"
 
         webView.runJavaScript(injectedJS, function(err) {
             if (!err) {
