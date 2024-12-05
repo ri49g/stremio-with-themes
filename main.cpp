@@ -1,4 +1,4 @@
-// main.cpp
+// main.cpp (unchanged from previous except removing initShellComm references)
 #include <QQmlApplicationEngine>
 #include <QtWebEngine>
 #include <QSysInfo>
