@@ -1,4 +1,7 @@
 // main.qml
+// No major changes except removing initShellComm usage from JS. We rely on qwebchannel automatically.
+// We'll wait for QWebChannel to be available in JS by polling.
+
 import QtQuick 2.7
 import QtWebEngine 1.4
 import QtWebChannel 1.0
@@ -323,26 +326,35 @@ ApplicationWindow {
         var cssContent = cssLoader.cssContent.replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/\n/g, "\\n");
         var jsContent = jsLoader.jsContent.replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/\n/g, "\\n");
 
-        // redefine initShellComm to ensure window.transport is available
-        var injectedJS = "try { " +
-            "var initShellComm = function() {" +
-            " new QWebChannel(qt.webChannelTransport, function(channel) {" +
-            "   window.transport = channel.objects.transport;" +
-            "});" +
-            "};" +
-            "initShellComm();" +
-            "var style = document.createElement('style'); style.innerHTML = '" + cssContent + "'; document.head.appendChild(style);" +
-            "var script = document.createElement('script'); script.innerHTML = '" + jsContent + "'; document.head.appendChild(script);" +
-            "} catch(e) { setTimeout(function() { throw e }); e.message || JSON.stringify(e) }"
+        // Wait for QWebChannel:
+        var script = `
+            (function waitForChannel() {
+                if (typeof QWebChannel === 'undefined' || typeof qt === 'undefined' || !qt.webChannelTransport) {
+                    setTimeout(waitForChannel, 100);
+                    return;
+                }
+                // QWebChannel ready
+                new QWebChannel(qt.webChannelTransport, function(channel) {
+                    window.transport = channel.objects.transport;
+                });
+                var style = document.createElement('style');
+                style.innerHTML = '${cssContent}';
+                document.head.appendChild(style);
 
-        webView.runJavaScript(injectedJS, function(err) {
-            if (!err) {
-                webView.tries = 0
-            } else {
+                var script = document.createElement('script');
+                script.innerHTML = '${jsContent}';
+                document.head.appendChild(script);
+            })();
+        `;
+
+        webView.runJavaScript(script, function(err) {
+            if (err) {
                 errorDialog.text = "User Interface could not be loaded.\n\nPlease try again later or contact the Stremio support team for assistance."
                 errorDialog.detailedText = err
                 errorDialog.visible = true
                 console.error(err)
+            } else {
+                webView.tries = 0
             }
         });
     }
