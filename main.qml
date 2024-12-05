@@ -113,8 +113,6 @@ ApplicationWindow {
             }
 
             if (ev === "download-mod") {
-                // args.url
-                // Use downloader object exposed from C++
                 downloader.downloadMod(args.url)
             }
 
@@ -125,7 +123,7 @@ ApplicationWindow {
             if (ev === "reload-mods-themes") {
                 cssLoader.reload();
                 jsLoader.reload();
-                injectJS(); // re-inject with new content
+                injectJS();
             }
         }
 
@@ -325,9 +323,16 @@ ApplicationWindow {
         var cssContent = cssLoader.cssContent.replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/\n/g, "\\n");
         var jsContent = jsLoader.jsContent.replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/\n/g, "\\n");
 
-        var injectedJS = "try { initShellComm(); " +
-            "var style = document.createElement('style'); style.innerHTML = '" + cssContent + "'; document.head.appendChild(style); " +
-            "var script = document.createElement('script'); script.innerHTML = '" + jsContent + "'; document.head.appendChild(script); " +
+        // redefine initShellComm to ensure window.transport is available
+        var injectedJS = "try { " +
+            "var initShellComm = function() {" +
+            " new QWebChannel(qt.webChannelTransport, function(channel) {" +
+            "   window.transport = channel.objects.transport;" +
+            "});" +
+            "};" +
+            "initShellComm();" +
+            "var style = document.createElement('style'); style.innerHTML = '" + cssContent + "'; document.head.appendChild(style);" +
+            "var script = document.createElement('script'); script.innerHTML = '" + jsContent + "'; document.head.appendChild(script);" +
             "} catch(e) { setTimeout(function() { throw e }); e.message || JSON.stringify(e) }"
 
         webView.runJavaScript(injectedJS, function(err) {
