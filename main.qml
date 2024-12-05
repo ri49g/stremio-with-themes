@@ -1,11 +1,10 @@
 // main.qml
 
-// changes made:
-// 1. removed the polling for QWebChannel and instead explicitly initialize QWebChannel once page load succeeds
-// 2. after QWebChannel is set up, we then run injectJS()
-// 3. ensure injectJS only inserts the mods JS after QWebChannel is ready
-//
-// only main.qml is returned as requested
+// changes:
+// 1. ensure qwebchannel.js is injected into the page before initializing QWebChannel
+// 2. after qwebchannel.js is in place, we create the channel and set window.transport
+// 3. add console logs to debug
+// 4. ensure that the injected JS code logs errors if window.transport isn't ready
 
 import QtQuick 2.7
 import QtWebEngine 1.4
@@ -75,6 +74,7 @@ ApplicationWindow {
         readonly property bool isFullscreen: root.visibility === Window.FullScreen
         signal event(var ev, var args)
         function onEvent(ev, args) {
+            console.log("Transport event:", ev, JSON.stringify(args))
             if (ev === "quit") quitApp()
             if (ev === "app-ready") transport.flushQueue()
             if (ev === "mpv-command" && args && args[0] !== "run") mpv.command(args)
@@ -121,17 +121,19 @@ ApplicationWindow {
             }
 
             if (ev === "download-mod") {
+                console.log("Download mod event received with URL:", args.url)
                 downloader.downloadMod(args.url)
             }
 
             if (ev === "download-theme") {
+                console.log("Download theme event received with URL:", args.url)
                 downloader.downloadTheme(args.url)
             }
 
             if (ev === "reload-mods-themes") {
+                console.log("Reload mods/themes event received")
                 cssLoader.reload();
                 jsLoader.reload();
-                // re-inject after reload
                 injectJS();
             }
         }
@@ -328,17 +330,17 @@ ApplicationWindow {
         pulseOpacity.running = false
         removeSplashTimer.running = false
 
-        // Once QWebChannel is established (done just after load success), we inject CSS and JS
         var cssContent = cssLoader.cssContent.replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/\n/g, "\\n");
         var jsContent = jsLoader.jsContent.replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/\n/g, "\\n");
 
         var script = `
+            console.log("Injecting CSS and JS...");
             var style = document.createElement('style');
             style.innerHTML = '${cssContent}';
             document.head.appendChild(style);
 
             var script = document.createElement('script');
-            script.innerHTML = '${jsContent}';
+            script.innerHTML = '${jsContent}\\nconsole.log("Mods JS loaded. transport:", window.transport);';
             document.head.appendChild(script);
         `;
 
@@ -348,6 +350,8 @@ ApplicationWindow {
                 errorDialog.detailedText = err
                 errorDialog.visible = true
                 console.error(err)
+            } else {
+                console.log("CSS/JS injection done.")
             }
         });
     }
@@ -359,7 +363,6 @@ ApplicationWindow {
         repeat: false
         onTriggered: function () {
             webView.backgroundColor = "transparent"
-            // no direct inject here; wait for QWebChannel init after load
         }
     }
 
@@ -388,11 +391,32 @@ ApplicationWindow {
             }
 
             if (successfullyLoaded) {
-                // Initialize QWebChannel after load
-                var channelInit = "new QWebChannel(qt.webChannelTransport, function(channel){window.transport = channel.objects.transport;})";
-                webView.runJavaScript(channelInit, function(result){
-                    // after QWebChannel is ready, inject CSS and JS
-                    injectJS();
+                console.log("Page loaded, injecting qwebchannel.js...");
+                // inject qwebchannel.js if needed
+                var loadQWebChannel = `
+                    if (typeof QWebChannel === 'undefined') {
+                        var s = document.createElement('script');
+                        s.src = 'qrc:///qtwebchannel/qwebchannel.js';
+                        s.onload = function() {
+                            console.log("qwebchannel.js loaded, creating channel...");
+                            new QWebChannel(qt.webChannelTransport, function(channel){
+                                window.transport = channel.objects.transport;
+                                console.log("Transport ready:", window.transport);
+                            });
+                        };
+                        document.head.appendChild(s);
+                    } else {
+                        console.log("QWebChannel already available, creating channel...");
+                        new QWebChannel(qt.webChannelTransport, function(channel){
+                            window.transport = channel.objects.transport;
+                            console.log("Transport ready:", window.transport);
+                        });
+                    }
+                `;
+                webView.runJavaScript(loadQWebChannel, function(res){
+                    console.log("qwebchannel init script done, now injecting custom CSS/JS after short delay to ensure transport is ready");
+                    // small delay to ensure transport is ready
+                    Qt.callLater(function(){ injectJS(); });
                 });
             }
 
