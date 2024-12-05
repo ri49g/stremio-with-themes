@@ -44,13 +44,13 @@ ApplicationWindow {
     }
 
     function showWindow() {
-            if (root.wasFullScreen) {
-                root.visibility = Window.FullScreen;
-            } else {
-                root.visibility = root.previousVisibility;
-            }
-            root.raise();
-            root.requestActivate();
+        if (root.wasFullScreen) {
+            root.visibility = Window.FullScreen;
+        } else {
+            root.visibility = root.previousVisibility;
+        }
+        root.raise();
+        root.requestActivate();
     }
 
     function updatePreviousVisibility() {
@@ -65,6 +65,7 @@ ApplicationWindow {
         property string serverAddress: "http://127.0.0.1:11470"
         readonly property bool isFullscreen: root.visibility === Window.FullScreen
         signal event(var ev, var args)
+
         function onEvent(ev, args) {
             if (ev === "quit") quitApp()
             if (ev === "app-ready") transport.flushQueue()
@@ -94,24 +95,25 @@ ApplicationWindow {
             if (ev === "screensaver-toggle") shouldDisableScreensaver(args.disabled)
             if (ev === "file-close") fileDialog.close()
             if (ev === "file-open") {
-              if (typeof args !== "undefined") {
-                var fileDialogDefaults = {
-                  title: "Please choose",
-                  selectExisting: true,
-                  selectFolder: false,
-                  selectMultiple: false,
-                  nameFilters: [],
-                  selectedNameFilter: "",
-                  data: null
+                if (typeof args !== "undefined") {
+                    var fileDialogDefaults = {
+                        title: "Please choose",
+                        selectExisting: true,
+                        selectFolder: false,
+                        selectMultiple: false,
+                        nameFilters: [],
+                        selectedNameFilter: "",
+                        data: null
+                    }
+                    Object.keys(fileDialogDefaults).forEach(function(key) {
+                        fileDialog[key] = args.hasOwnProperty(key) ? args[key] : fileDialogDefaults[key]
+                    })
                 }
-                Object.keys(fileDialogDefaults).forEach(function(key) {
-                  fileDialog[key] = args.hasOwnProperty(key) ? args[key] : fileDialogDefaults[key]
-                })
-              }
-              fileDialog.open()
+                fileDialog.open()
             }
         }
 
+        // Existing queue management methods
         property variant queued: []
         function queueEvent() {
             if (transport.queued) transport.queued.push(arguments)
@@ -120,6 +122,58 @@ ApplicationWindow {
         function flushQueue() {
             if (transport.queued) transport.queued.forEach(function(args) { transport.event.apply(transport, args) })
             transport.queued = null;
+        }
+
+        // New methods added to transport QtObject
+
+        /**
+         * Downloads a mod or theme from the specified URL and saves it to the appropriate directory.
+         * @param {string} url - The URL to download the mod/theme from.
+         * @param {string} type - The type of the file ('mod' or 'theme').
+         */
+        function downloadMod(url, type) {
+            var xhr = new XMLHttpRequest();
+            xhr.open("GET", url, true);
+            xhr.responseType = "text";
+            
+            xhr.onload = function() {
+                if (xhr.status === 200) {
+                    var content = xhr.responseText;
+                    var filename = url.split('/').pop();
+                    var targetDir = type === 'mod' ? '/home/ras/ephemeral/inject/mods/' : '/home/ras/ephemeral/inject/themes/';
+                    
+                    var file = new QFile(targetDir + filename);
+                    if (file.open(QIODevice.WriteOnly)) {
+                        file.write(content);
+                        file.close();
+                        transport.event("mod-downloaded", {success: true, type: type});
+                    } else {
+                        transport.event("mod-downloaded", {success: false, error: "Failed to write file"});
+                    }
+                } else {
+                    transport.event("mod-downloaded", {success: false, error: "Download failed"});
+                }
+            };
+            
+            xhr.onerror = function() {
+                transport.event("mod-downloaded", {success: false, error: "Network error"});
+            };
+            
+            xhr.send();
+        }
+
+        /**
+         * Reloads the CSS and JS content by reinitializing the loaders and updates the corresponding properties.
+         */
+        function reloadMods() {
+            // Reload CSS and JS content
+            var cssLoader = new CssLoader();
+            var jsLoader = new JsLoader();
+            
+            m_cssContent = cssLoader.cssContent;
+            m_jsContent = jsLoader.jsContent;
+            
+            transport.event("mods-reloaded", {});
         }
     }
 
