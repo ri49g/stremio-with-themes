@@ -1,11 +1,10 @@
+// main.cpp
 #include <QQmlApplicationEngine>
 #include <QtWebEngine>
 #include <QSysInfo>
-
 #include <clocale>
 
 #define APP_TITLE "Stremio Modshell"
-
 #define DESKTOP true
 
 #ifdef DESKTOP
@@ -25,12 +24,16 @@ typedef QApplication Application;
 #include "screensaver.h"
 #include "razerchroma.h"
 #include "qclipboardproxy.h"
-
 #include <QObject>
 #include <QFile>
 #include <QDebug>
-#include <QDir>            // MODIFICATION: For directory listing
-#include <QFileInfoList>   // MODIFICATION
+#include <QDir>
+#include <QFileInfoList>
+
+#include <QNetworkAccessManager>
+#include <QNetworkRequest>
+#include <QNetworkReply>
+#include <QUrl>
 #else
 #include <QGuiApplication>
 #endif
@@ -38,10 +41,26 @@ typedef QApplication Application;
 class CssLoader : public QObject {
     Q_OBJECT
     Q_PROPERTY(QString cssContent READ cssContent NOTIFY cssContentChanged)
-
 public:
     CssLoader(QObject *parent = nullptr) : QObject(parent) {
-        // MODIFICATION: Load all .css files from /home/ras/ephemeral/inject/themes
+        loadCss();
+    }
+
+    QString cssContent() const {
+        return m_cssContent;
+    }
+
+    Q_INVOKABLE void reload() {
+        loadCss();
+        emit cssContentChanged();
+    }
+
+signals:
+    void cssContentChanged();
+
+private:
+    QString m_cssContent;
+    void loadCss() {
         QString basePath = "/home/ras/ephemeral/inject/themes";
         QDir dir(basePath);
         if (!dir.exists()) {
@@ -64,28 +83,33 @@ public:
                 qWarning() << "Could not open CSS file:" << fileName;
             }
         }
-
         m_cssContent = allCss;
     }
-
-    QString cssContent() const {
-        return m_cssContent;
-    }
-
-signals:
-    void cssContentChanged();
-
-private:
-    QString m_cssContent;
 };
 
 class JsLoader : public QObject {
     Q_OBJECT
     Q_PROPERTY(QString jsContent READ jsContent NOTIFY jsContentChanged)
-
 public:
     JsLoader(QObject *parent = nullptr) : QObject(parent) {
-        // MODIFICATION: Load all .js files from /home/ras/ephemeral/inject/mods
+        loadJs();
+    }
+
+    QString jsContent() const {
+        return m_jsContent;
+    }
+
+    Q_INVOKABLE void reload() {
+        loadJs();
+        emit jsContentChanged();
+    }
+
+signals:
+    void jsContentChanged();
+
+private:
+    QString m_jsContent;
+    void loadJs() {
         QString basePath = "/home/ras/ephemeral/inject/mods";
         QDir dir(basePath);
         if (!dir.exists()) {
@@ -111,27 +135,89 @@ public:
 
         m_jsContent = allJs;
     }
+};
 
-    QString jsContent() const {
-        return m_jsContent;
+// A helper class to manage mod downloading and reloading
+class ModManager : public QObject {
+    Q_OBJECT
+public:
+    ModManager(QObject *parent = nullptr) : QObject(parent) {
+        manager = new QNetworkAccessManager(this);
+    }
+
+    void setJsLoader(JsLoader *jsLoader) {
+        m_jsLoader = jsLoader;
+    }
+
+    void setCssLoader(CssLoader *cssLoader) {
+        m_cssLoader = cssLoader;
+    }
+
+public slots:
+    void downloadMod(const QString &url, const QString &id) {
+        // download the file from url and save to /home/ras/ephemeral/inject/mods
+        QUrl qurl(url);
+        if (!qurl.isValid()) {
+            qWarning() << "Invalid URL:" << url;
+            return;
+        }
+        QString basePath = "/home/ras/ephemeral/inject/mods";
+        QDir dir(basePath);
+        if (!dir.exists()) {
+            dir.mkpath(basePath);
+        }
+
+        // The mod file name would be something like id.js
+        QString filePath = dir.filePath(id + ".js");
+
+        QNetworkRequest request(qurl);
+        QNetworkReply *reply = manager->get(request);
+        connect(reply, &QNetworkReply::finished, this, [this, reply, filePath, id]() {
+            if (reply->error() != QNetworkReply::NoError) {
+                qWarning() << "Download error:" << reply->errorString();
+                reply->deleteLater();
+                return;
+            }
+
+            QByteArray data = reply->readAll();
+            QFile file(filePath);
+            if (file.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+                file.write(data);
+                file.close();
+                qDebug() << "Mod saved to:" << filePath;
+            } else {
+                qWarning() << "Failed to write mod file:" << filePath;
+            }
+            reply->deleteLater();
+            // notify QML/JS that mod is downloaded
+            emit modDownloaded(id);
+        });
+    }
+
+    void reloadMods() {
+        // Just call reload on jsLoader and cssLoader
+        if (m_jsLoader) m_jsLoader->reload();
+        if (m_cssLoader) m_cssLoader->reload();
+        emit modsReloaded();
     }
 
 signals:
-    void jsContentChanged();
+    void modDownloaded(const QString &id);
+    void modsReloaded();
 
 private:
-    QString m_jsContent;
+    QNetworkAccessManager *manager;
+    JsLoader *m_jsLoader = nullptr;
+    CssLoader *m_cssLoader = nullptr;
 };
 
-void InitializeParameters(QQmlApplicationEngine *engine, MainApp& app) {
+void InitializeParameters(QQmlApplicationEngine *engine, MainApp& app, JsLoader *jsLoader, CssLoader *cssLoader, ModManager *modManager) {
     QQmlContext *ctx = engine->rootContext();
     SystemTray * systemTray = new SystemTray();
 
     ctx->setContextProperty("applicationDirPath", QGuiApplication::applicationDirPath());
     ctx->setContextProperty("appTitle", QString(APP_TITLE));
     ctx->setContextProperty("autoUpdater", app.autoupdater);
-
-    // Set access to an object of class properties in QML context
     ctx->setContextProperty("systemTray", systemTray);
 
     #ifdef QT_DEBUG
@@ -140,13 +226,9 @@ void InitializeParameters(QQmlApplicationEngine *engine, MainApp& app) {
         ctx->setContextProperty("debug", false);
     #endif
 
-    // Add the CssLoader instance
-    CssLoader *cssLoader = new CssLoader();
     ctx->setContextProperty("cssLoader", cssLoader);
-
-    // Add the JsLoader instance
-    JsLoader *jsLoader = new JsLoader();
     ctx->setContextProperty("jsLoader", jsLoader);
+    ctx->setContextProperty("modManager", modManager);
 }
 
 int main(int argc, char **argv)
@@ -195,7 +277,13 @@ int main(int argc, char **argv)
     qmlRegisterType<RazerChroma>("com.stremio.razerchroma", 1, 0, "RazerChroma");
     qmlRegisterType<ClipboardProxy>("com.stremio.clipboard", 1, 0, "Clipboard");
 
-    InitializeParameters(engine, app);
+    CssLoader *cssLoader = new CssLoader();
+    JsLoader *jsLoader = new JsLoader();
+    ModManager *modManager = new ModManager();
+    modManager->setJsLoader(jsLoader);
+    modManager->setCssLoader(cssLoader);
+
+    InitializeParameters(engine, app, jsLoader, cssLoader, modManager);
 
     engine->load(QUrl(QStringLiteral("qrc:/main.qml")));
 
@@ -204,10 +292,8 @@ int main(int argc, char **argv)
     #endif
     QObject::connect( &app, SIGNAL(receivedMessage(QVariant, QVariant)), engine->rootObjects().value(0),
                       SLOT(onAppMessageReceived(QVariant, QVariant)) );
-    int ret = app.exec();
-    delete engine;
-    engine = nullptr;
-    return ret;
+
+    return app.exec();
 }
 
 #include "main.moc"
