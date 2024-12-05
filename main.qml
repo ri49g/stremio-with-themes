@@ -63,9 +63,7 @@ ApplicationWindow {
         id: transport
         readonly property string shellVersion: Qt.application.version
         property string serverAddress: "http://127.0.0.1:11470"
-
         readonly property bool isFullscreen: root.visibility === Window.FullScreen
-
         signal event(var ev, var args)
         function onEvent(ev, args) {
             if (ev === "quit") quitApp()
@@ -112,21 +110,6 @@ ApplicationWindow {
               }
               fileDialog.open()
             }
-
-            // MODIFIED: handle download-mod event
-            if (ev === "download-mod") {
-                // Instead of downloading directly, we signal the backend to do so
-                // The backend can then manage the saving of the file to the mods folder
-                // This assumes the backend listens to "start-mod-download" event or similar.
-                transport.event("start-mod-download", {url: args.url});
-            }
-
-            // MODIFIED: handle reload-mods-themes event
-            if (ev === "reload-mods-themes") {
-                cssLoader.loadCssFiles()
-                jsLoader.loadJsFiles()
-                injectJS() // re-inject after reloading
-            }
         }
 
         property variant queued: []
@@ -163,7 +146,7 @@ ApplicationWindow {
         message = message.toString();
         showWindow();
         if (message !== "SHOW") {
-                onAppOpenMedia(message);
+            onAppOpenMedia(message);
         }
     }
 
@@ -183,6 +166,7 @@ ApplicationWindow {
 
     Connections {
         target: systemTray
+
         function onSignalIconMenuAboutToShow() {
             systemTray.updateIsOnTop((root.flags & Qt.WindowStaysOnTopHint) === Qt.WindowStaysOnTopHint);
             systemTray.updateVisibleAction(root.visible);
@@ -218,7 +202,6 @@ ApplicationWindow {
         id: screenSaver
         property bool disabled: false
     }
-
     Timer {
         id: timerScreensaver
         interval: 300000
@@ -327,17 +310,16 @@ ApplicationWindow {
         removeSplashTimer.running = false
         webView.webChannel.registerObject( 'transport', transport )
 
-        // Prepare the CSS code (all css files)
+        // The CSS and JS content now come from cssLoader and jsLoader,
+        // which have concatenated all files in their respective directories.
         var cssContent = cssLoader.cssContent.replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/\n/g, "\\n");
-
-        // Prepare the JS code (all js files)
         var jsContent = jsLoader.jsContent.replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/\n/g, "\\n");
 
-        // MODIFIED: Using combined JS content
         var injectedJS = "try { initShellComm(); " +
             "var style = document.createElement('style'); style.innerHTML = '" + cssContent + "'; document.head.appendChild(style); " +
             "var script = document.createElement('script'); script.innerHTML = '" + jsContent + "'; document.head.appendChild(script); " +
-            "} catch(e) { setTimeout(function() { throw e }); e.message || JSON.stringify(e) }"
+            "} " +
+            "catch(e) { setTimeout(function() { throw e }); e.message || JSON.stringify(e) }"
 
         webView.runJavaScript(injectedJS, function(err) {
             if (!err) {
@@ -375,7 +357,7 @@ ApplicationWindow {
         Component.onCompleted: function() {
             console.log("Loading web UI from URL: "+webView.mainUrl)
             webView.profile.httpUserAgent = webView.profile.httpUserAgent+' StremioShell/'+Qt.application.version
-            webView.profile.httpCacheMaximumSize = 209715200
+            webView.profile.httpCacheMaximumSize = 209715200 // 200 MB
         }
 
         onLoadingChanged: function(loadRequest) {
@@ -388,6 +370,7 @@ ApplicationWindow {
             if (successfullyLoaded) {
                 injectJS()
             }
+
             var shouldRetry = loadRequest.status == WebEngineView.LoadFailedStatus ||
                     loadRequest.status == WebEngineView.LoadStoppedStatus
             if ( shouldRetry && webView.tries < webView.maxTries) {
@@ -496,10 +479,8 @@ ApplicationWindow {
             SequentialAnimation {
                 id: pulseOpacity
                 running: true
-                NumberAnimation { target: splashLogo; property: "opacity"; to: 1.0; duration: 600;
-                    easing.type: Easing.Linear; }
-                NumberAnimation { target: splashLogo; property: "opacity"; to: 0.3; duration: 600;
-                    easing.type: Easing.Linear; }
+                NumberAnimation { target: splashLogo; property: "opacity"; to: 1.0; duration: 600; easing.type: Easing.Linear; }
+                NumberAnimation { target: splashLogo; property: "opacity"; to: 0.3; duration: 600; easing.type: Easing.Linear; }
                 loops: Animation.Infinite
             }
         }
