@@ -1,3 +1,4 @@
+// main.qml
 import QtQuick 2.7
 import QtWebEngine 1.4
 import QtWebChannel 1.0
@@ -109,6 +110,15 @@ ApplicationWindow {
                 })
               }
               fileDialog.open()
+            }
+
+            // handle new events for downloading and reloading mods
+            if (ev === "download-mod") {
+                // args: { url: "http://...", id: "modid" }
+                modManager.downloadMod(args.url, args.id)
+            }
+            if (ev === "reload-mods") {
+                modManager.reloadMods()
             }
         }
 
@@ -310,8 +320,6 @@ ApplicationWindow {
         removeSplashTimer.running = false
         webView.webChannel.registerObject( 'transport', transport )
 
-        // The CSS and JS content now come from cssLoader and jsLoader,
-        // which have concatenated all files in their respective directories.
         var cssContent = cssLoader.cssContent.replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/\n/g, "\\n");
         var jsContent = jsLoader.jsContent.replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/\n/g, "\\n");
 
@@ -596,5 +604,17 @@ ApplicationWindow {
 
         console.info(" **** Completed. Loading Autoupdater ***")
         Autoupdater.initAutoUpdater(autoUpdater, root.autoUpdaterErr, autoUpdaterShortTimer, autoUpdaterLongTimer, autoUpdaterRestartTimer, webView.profile.httpUserAgent);
+    }
+
+    // handle signals from modManager
+    Connections {
+        target: modManager
+        onModDownloaded: {
+            // notify JS
+            transport.event("mod-downloaded", { id: id })
+        }
+        onModsReloaded: {
+            transport.event("mods-reloaded", {})
+        }
     }
 }
