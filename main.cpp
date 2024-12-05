@@ -1,6 +1,7 @@
 #include <QQmlApplicationEngine>
 #include <QtWebEngine>
 #include <QSysInfo>
+
 #include <clocale>
 
 #define APP_TITLE "Stremio Modshell"
@@ -12,9 +13,12 @@
 typedef QApplication Application;
 
 #include <QQmlEngine>
+#include <QQmlContext>
 #include <QStandardPaths>
+
 #include <QSystemTrayIcon>
 #include "systemtray.h"
+
 #include "mainapplication.h"
 #include "stremioprocess.h"
 #include "mpv.h"
@@ -25,33 +29,43 @@ typedef QApplication Application;
 #include <QObject>
 #include <QFile>
 #include <QDebug>
-#include <QDir>
+#include <QDir>            // MODIFICATION: For directory listing
+#include <QFileInfoList>   // MODIFICATION
+#else
+#include <QGuiApplication>
+#endif
 
-// MODIFIED: Updated CssLoader and JsLoader to load multiple files from directories
 class CssLoader : public QObject {
     Q_OBJECT
     Q_PROPERTY(QString cssContent READ cssContent NOTIFY cssContentChanged)
 
 public:
     CssLoader(QObject *parent = nullptr) : QObject(parent) {
-        loadCssFiles();
-    }
+        // MODIFICATION: Load all .css files from /home/ras/ephemeral/inject/themes
+        QString basePath = "/home/ras/ephemeral/inject/themes";
+        QDir dir(basePath);
+        if (!dir.exists()) {
+            qWarning() << "Themes directory does not exist:" << basePath;
+        }
 
-    Q_INVOKABLE void loadCssFiles() {
-        m_cssContent.clear();
-        QDir dir("/home/ras/ephemeral/inject/themes");
-        QStringList files = dir.entryList(QStringList() << "*.css", QDir::Files);
-        foreach(QString file, files) {
-            QFile f(dir.filePath(file));
-            if (f.open(QIODevice::ReadOnly | QIODevice::Text)) {
-                m_cssContent += f.readAll();
-                m_cssContent += "\n";
-                f.close();
+        QStringList filters;
+        filters << "*.css";
+        dir.setNameFilters(filters);
+
+        QStringList files = dir.entryList(QDir::Files);
+        QString allCss;
+        for (const QString &fileName : files) {
+            QFile file(dir.filePath(fileName));
+            if (file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+                allCss.append(file.readAll());
+                allCss.append("\n");
+                file.close();
             } else {
-                qWarning() << "Could not open CSS file:" << dir.filePath(file);
+                qWarning() << "Could not open CSS file:" << fileName;
             }
         }
-        emit cssContentChanged();
+
+        m_cssContent = allCss;
     }
 
     QString cssContent() const {
@@ -71,24 +85,31 @@ class JsLoader : public QObject {
 
 public:
     JsLoader(QObject *parent = nullptr) : QObject(parent) {
-        loadJsFiles();
-    }
+        // MODIFICATION: Load all .js files from /home/ras/ephemeral/inject/mods
+        QString basePath = "/home/ras/ephemeral/inject/mods";
+        QDir dir(basePath);
+        if (!dir.exists()) {
+            qWarning() << "Mods directory does not exist:" << basePath;
+        }
 
-    Q_INVOKABLE void loadJsFiles() {
-        m_jsContent.clear();
-        QDir dir("/home/ras/ephemeral/inject/mods");
-        QStringList files = dir.entryList(QStringList() << "*.js", QDir::Files);
-        foreach(QString file, files) {
-            QFile f(dir.filePath(file));
-            if (f.open(QIODevice::ReadOnly | QIODevice::Text)) {
-                m_jsContent += f.readAll();
-                m_jsContent += "\n";
-                f.close();
+        QStringList filters;
+        filters << "*.js";
+        dir.setNameFilters(filters);
+
+        QStringList files = dir.entryList(QDir::Files);
+        QString allJs;
+        for (const QString &fileName : files) {
+            QFile file(dir.filePath(fileName));
+            if (file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+                allJs.append(file.readAll());
+                allJs.append("\n");
+                file.close();
             } else {
-                qWarning() << "Could not open JS file:" << dir.filePath(file);
+                qWarning() << "Could not open JS file:" << fileName;
             }
         }
-        emit jsContentChanged();
+
+        m_jsContent = allJs;
     }
 
     QString jsContent() const {
@@ -110,6 +131,7 @@ void InitializeParameters(QQmlApplicationEngine *engine, MainApp& app) {
     ctx->setContextProperty("appTitle", QString(APP_TITLE));
     ctx->setContextProperty("autoUpdater", app.autoupdater);
 
+    // Set access to an object of class properties in QML context
     ctx->setContextProperty("systemTray", systemTray);
 
     #ifdef QT_DEBUG
@@ -118,10 +140,11 @@ void InitializeParameters(QQmlApplicationEngine *engine, MainApp& app) {
         ctx->setContextProperty("debug", false);
     #endif
 
-    // MODIFIED: Instantiate CssLoader and JsLoader for multiple files
+    // Add the CssLoader instance
     CssLoader *cssLoader = new CssLoader();
     ctx->setContextProperty("cssLoader", cssLoader);
 
+    // Add the JsLoader instance
     JsLoader *jsLoader = new JsLoader();
     ctx->setContextProperty("jsLoader", jsLoader);
 }
