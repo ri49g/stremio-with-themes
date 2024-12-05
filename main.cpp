@@ -31,6 +31,10 @@ typedef QApplication Application;
 #include <QDebug>
 #include <QDir>            // MODIFICATION: For directory listing
 #include <QFileInfoList>   // MODIFICATION
+#include <QTextStream>
+#include <QNetworkAccessManager>
+#include <QNetworkReply>
+
 #else
 #include <QGuiApplication>
 #endif
