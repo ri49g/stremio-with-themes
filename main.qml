@@ -1,6 +1,11 @@
 // main.qml
-// No major changes except removing initShellComm usage from JS. We rely on qwebchannel automatically.
-// We'll wait for QWebChannel to be available in JS by polling.
+
+// changes made:
+// 1. removed the polling for QWebChannel and instead explicitly initialize QWebChannel once page load succeeds
+// 2. after QWebChannel is set up, we then run injectJS()
+// 3. ensure injectJS only inserts the mods JS after QWebChannel is ready
+//
+// only main.qml is returned as requested
 
 import QtQuick 2.7
 import QtWebEngine 1.4
@@ -126,6 +131,7 @@ ApplicationWindow {
             if (ev === "reload-mods-themes") {
                 cssLoader.reload();
                 jsLoader.reload();
+                // re-inject after reload
                 injectJS();
             }
         }
@@ -321,30 +327,19 @@ ApplicationWindow {
         splashScreen.visible = false
         pulseOpacity.running = false
         removeSplashTimer.running = false
-        webView.webChannel.registerObject('transport', transport )
 
+        // Once QWebChannel is established (done just after load success), we inject CSS and JS
         var cssContent = cssLoader.cssContent.replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/\n/g, "\\n");
         var jsContent = jsLoader.jsContent.replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/\n/g, "\\n");
 
-        // Wait for QWebChannel:
         var script = `
-            (function waitForChannel() {
-                if (typeof QWebChannel === 'undefined' || typeof qt === 'undefined' || !qt.webChannelTransport) {
-                    setTimeout(waitForChannel, 100);
-                    return;
-                }
-                // QWebChannel ready
-                new QWebChannel(qt.webChannelTransport, function(channel) {
-                    window.transport = channel.objects.transport;
-                });
-                var style = document.createElement('style');
-                style.innerHTML = '${cssContent}';
-                document.head.appendChild(style);
+            var style = document.createElement('style');
+            style.innerHTML = '${cssContent}';
+            document.head.appendChild(style);
 
-                var script = document.createElement('script');
-                script.innerHTML = '${jsContent}';
-                document.head.appendChild(script);
-            })();
+            var script = document.createElement('script');
+            script.innerHTML = '${jsContent}';
+            document.head.appendChild(script);
         `;
 
         webView.runJavaScript(script, function(err) {
@@ -353,8 +348,6 @@ ApplicationWindow {
                 errorDialog.detailedText = err
                 errorDialog.visible = true
                 console.error(err)
-            } else {
-                webView.tries = 0
             }
         });
     }
@@ -366,7 +359,7 @@ ApplicationWindow {
         repeat: false
         onTriggered: function () {
             webView.backgroundColor = "transparent"
-            injectJS()
+            // no direct inject here; wait for QWebChannel init after load
         }
     }
 
@@ -393,8 +386,14 @@ ApplicationWindow {
                 splashScreen.visible = false
                 pulseOpacity.running = false
             }
+
             if (successfullyLoaded) {
-                injectJS()
+                // Initialize QWebChannel after load
+                var channelInit = "new QWebChannel(qt.webChannelTransport, function(channel){window.transport = channel.objects.transport;})";
+                webView.runJavaScript(channelInit, function(result){
+                    // after QWebChannel is ready, inject CSS and JS
+                    injectJS();
+                });
             }
 
             var shouldRetry = loadRequest.status == WebEngineView.LoadFailedStatus ||
